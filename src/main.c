@@ -554,9 +554,11 @@ static void log_sample(App *app) {
         }
         sanitize_csv_field(process->name, process_name, sizeof(process_name));
         sanitize_csv_field(process->engine, engine, sizeof(engine));
-        fprintf(app->log_file, "%lu,\"%s\",%.2f,%llu,%llu,\"%s\"\n",
-                (unsigned long)process->pid, process_name, process->gpu_percent,
-                (unsigned long long)process->dedicated_bytes,
+        fprintf(app->log_file, "%lu,\"%s\",%.2f,",
+                (unsigned long)process->pid, process_name, process->gpu_percent);
+        if (!process->dedicated_memory_invalid)
+            fprintf(app->log_file, "%llu", (unsigned long long)process->dedicated_bytes);
+        fprintf(app->log_file, ",%llu,\"%s\"\n",
                 (unsigned long long)process->shared_bytes, engine);
     }
     if (fflush(app->log_file) != 0 || ferror(app->log_file)) {
@@ -681,15 +683,13 @@ static bool sample_app(App *app) {
     } else {
         app->process_count = 0;
     }
-    app->wddm_process_memory_suspect = false;
-    if (app->telemetry.memory_total) {
-        for (size_t i = 0; i < app->process_count; ++i) {
-            if (app->processes[i].dedicated_bytes > app->telemetry.memory_total) {
-                app->wddm_process_memory_suspect = true;
-                break;
-            }
-        }
-    }
+    /* Microsoft documents that one bad GPU Process Memory value means the
+       affected counter source is accumulating stale allocations. There is no
+       trustworthy way to identify the other poisoned rows, so quarantine the
+       dedicated column for the whole snapshot instead of allowing a smaller
+       but equally stale value (for example DWM) to look real. */
+    app->wddm_process_memory_suspect = quarantine_invalid_dedicated_gpu_memory(
+        app->processes, app->process_count, app->telemetry.memory_total);
     update_visible_processes(app);
     add_history_sample(app);
     log_sample(app);
@@ -835,8 +835,9 @@ static void render_help(TextBuffer *buffer) {
         "  Home/End              Oldest retained/live         Hover  Exact point value\n\n"
         "%sAccounting%s\n"
         "  Process GPU %% is the busiest Windows GPU engine for that PID, matching Task Manager's\n"
-        "  model. Dedicated/shared values come from WDDM counters. A trailing ! marks a value\n"
-        "  larger than physical VRAM, a known Windows counter anomaly rather than residency.\n"
+        "  model. Dedicated/shared values come from WDDM counters. If Windows returns one\n"
+        "  impossible dedicated value, the full dedicated snapshot is shown as N/A because\n"
+        "  other rows can contain the same documented stale-allocation counter error.\n"
         "  Board telemetry comes from NVML; DXGI supplies a vendor-neutral memory fallback.\n",
         ANSI_BOLD, ANSI_RESET, ANSI_BOLD, ANSI_RESET, ANSI_BOLD, ANSI_RESET);
 }
@@ -955,10 +956,11 @@ static void render_process_table(App *app, TextBuffer *buffer, int columns, int 
         char pid[32], gpu[32], dedicated[32], shared[32];
         snprintf(pid, sizeof(pid), "%lu", (unsigned long)process->pid);
         snprintf(gpu, sizeof(gpu), "%.1f%%", process->gpu_percent);
-        format_bytes(process->dedicated_bytes, dedicated, sizeof(dedicated));
+        if (process->dedicated_memory_invalid)
+            snprintf(dedicated, sizeof(dedicated), "N/A !");
+        else
+            format_bytes(process->dedicated_bytes, dedicated, sizeof(dedicated));
         format_bytes(process->shared_bytes, shared, sizeof(shared));
-        if (app->telemetry.memory_total && process->dedicated_bytes > app->telemetry.memory_total)
-            strncat_s(dedicated, sizeof(dedicated), " !", _TRUNCATE);
 
         if (row == app->selection) text_buffer_append(buffer, "%s", ANSI_REVERSE);
         for (int i = 0; i < layout.indent; ++i) text_buffer_append(buffer, " ");
@@ -1416,7 +1418,7 @@ static void render_app(App *app, TextBuffer *buffer) {
         char footer[512], clipped[512];
         const char *health = !app->pdh_ready && !app->demo_mode ? "! WDDM counters unavailable | " :
                              app->wddm_process_memory_suspect ? "! WDDM process-memory anomaly | " : "";
-        snprintf(footer, sizeof(footer), "%sClick headers to sort | %s %s | %zu processes | filter: %s | c chart | h help | q quit",
+        snprintf(footer, sizeof(footer), "%s%s %s | %zu processes | filter: %s | c chart | h help | q quit",
                  health,
                  sort_name(app->sort_mode), app->sort_descending ? "high-low" : "low-high",
                  app->visible_count, app->filter[0] ? app->filter : "none");
@@ -1780,8 +1782,10 @@ static void print_once_json(const App *app) {
         const GpuProcess *process = app->visible[i];
         if (i) putchar(',');
         printf("{\"pid\":%lu,\"name\":", (unsigned long)process->pid); write_json_string(process->name);
-        printf(",\"gpu_percent\":%.2f,\"dedicated_commit_bytes\":%llu,\"shared_commit_bytes\":%llu,\"engine\":",
-               process->gpu_percent, (unsigned long long)process->dedicated_bytes,
+        printf(",\"gpu_percent\":%.2f,\"dedicated_commit_bytes\":", process->gpu_percent);
+        if (process->dedicated_memory_invalid) fputs("null", stdout);
+        else printf("%llu", (unsigned long long)process->dedicated_bytes);
+        printf(",\"shared_commit_bytes\":%llu,\"engine\":",
                (unsigned long long)process->shared_bytes);
         write_json_string(process->engine);
         putchar('}');
@@ -1805,9 +1809,10 @@ static void print_once_table(const App *app) {
         const GpuProcess *process = app->visible[i];
         char name[64], dedicated[32], shared[32];
         truncate_text(process->name, name, sizeof(name), 32);
+        if (process->dedicated_memory_invalid) snprintf(dedicated, sizeof(dedicated), "N/A !");
+        else format_bytes(process->dedicated_bytes, dedicated, sizeof(dedicated));
         printf("%-8lu %-32s %7.1f%% %12s %12s %-14s\n", (unsigned long)process->pid, name,
-               process->gpu_percent,
-               format_bytes(process->dedicated_bytes, dedicated, sizeof(dedicated)),
+               process->gpu_percent, dedicated,
                format_bytes(process->shared_bytes, shared, sizeof(shared)), process->engine);
     }
 }
@@ -1830,8 +1835,8 @@ static bool parse_chart_metric(const char *name, ChartMetric *metric) {
 }
 
 static void print_help(void) {
-    printf(
-        "VGPU-Mon %s - live Windows GPU process monitor\n\n"
+    fputs(
+        "VGPU-Mon " VGPU_VERSION " - live Windows GPU process monitor\n\n"
         "Usage: vgpu [options]\n\n"
         "  --once             Print one snapshot and exit\n"
         "  --json             Print one snapshot as JSON\n"
@@ -1854,7 +1859,7 @@ static void print_help(void) {
         "Run without options in Windows Terminal for the interactive UI.\n"
         "Headers are mouse-clickable; click again to reverse the sort.\n"
         "Charts support wheel zoom, Shift+wheel or arrow-key panning, and exact hover values.\n",
-        VGPU_VERSION);
+        stdout);
 }
 
 static bool initialize_app(App *app) {

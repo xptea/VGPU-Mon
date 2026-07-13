@@ -1,6 +1,6 @@
 # Architecture
 
-VGPU-Mon is a native Windows application. It has no service, kernel component, injected DLL, persistent background updater, or vendor SDK dependency. An installed interactive launch performs a bounded HTTPS update check before provider initialization; a verified update uses a short-lived PowerShell handoff only after the monitor exits.
+VGPU-Mon is a native Windows application. It has no service, kernel component, injected DLL, persistent background updater, or vendor SDK dependency. An installed interactive launch performs a bounded HTTPS update check before provider initialization; a verified update uses a short-lived, console-detached PowerShell handoff only after the monitor exits.
 
 ## Data flow
 
@@ -10,7 +10,7 @@ VGPU-Mon is a native Windows application. It has no service, kernel component, i
 4. The sampler normalizes those sources into one `GpuTelemetry` snapshot plus bounded process rows and chart histories.
 5. The renderer builds one bounded frame in memory and repaints the visible terminal region in a single write.
 
-The updater reads `version.txt` from the latest stable GitHub Release, validates its strict version, installer, and hash fields, and compares semantic versions. It downloads an exact tag-specific installer to the user temporary directory and hashes it with Windows CNG before starting a transient installer helper. Offline, malformed, oversized, downgraded, or hash-mismatched responses fail closed for the update and fail open for monitoring. Non-interactive output paths do not access the network.
+The updater reads `version.txt` from the latest stable GitHub Release, validates its strict version, installer, and hash fields, and compares semantic versions. It downloads an exact tag-specific installer to the user temporary directory and hashes it with Windows CNG before starting a transient installer helper. The helper has no inherited console handles and never relaunches a second foreground process after the invoking shell regains input ownership. Offline, malformed, oversized, downgraded, or hash-mismatched responses fail closed for the update and fail open for monitoring. Non-interactive output paths do not access the network.
 
 `--demo` replaces steps 1–3 with deterministic values while keeping the real sampling, layout, JSON, input, and rendering paths. It exists for testing and UI previews; it is never presented as hardware telemetry.
 
@@ -28,7 +28,7 @@ The interactive UI uses Windows console input records and VT output. Every updat
 
 ## Accounting caveats
 
-NVML physical allocation, DXGI OS budget/usage, and WDDM per-process commitments describe different layers and do not necessarily sum. The UI labels commitments explicitly and preserves implausible WDDM values with a warning instead of disguising a Windows counter anomaly.
+NVML physical allocation, DXGI OS budget/usage, and WDDM per-process commitments describe different layers and do not necessarily sum. Microsoft documents that GPU Process Memory can accumulate stale allocations. If one dedicated row exceeds the physical GPU total, the entire dedicated snapshot is reported as unavailable: once the counter source is demonstrably corrupt, smaller rows cannot be distinguished safely from stale values.
 
 The displayed per-process GPU percentage is the busiest engine for that process, matching the accounting style used by Windows Task Manager. It is not additive across dissimilar engines.
 

@@ -88,6 +88,29 @@ bool contains_case_insensitive(const char *haystack, const char *needle) {
     return false;
 }
 
+bool dedicated_gpu_memory_plausible(uint64_t bytes, uint64_t physical_total) {
+    return physical_total == 0 || bytes <= physical_total;
+}
+
+bool quarantine_invalid_dedicated_gpu_memory(GpuProcess *processes, size_t count,
+                                             uint64_t physical_total) {
+    if (!processes || physical_total == 0) return false;
+    bool invalid = false;
+    for (size_t i = 0; i < count; ++i) {
+        if (!dedicated_gpu_memory_plausible(processes[i].dedicated_bytes,
+                                            physical_total)) {
+            invalid = true;
+            break;
+        }
+    }
+    if (!invalid) return false;
+    for (size_t i = 0; i < count; ++i) {
+        processes[i].dedicated_memory_invalid = true;
+        processes[i].dedicated_bytes = 0;
+    }
+    return true;
+}
+
 void iso_timestamp(char *buffer, size_t buffer_size) {
     SYSTEMTIME st;
     GetLocalTime(&st);
