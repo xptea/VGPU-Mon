@@ -148,6 +148,8 @@ bool nvml_sample(NvmlContext *context, unsigned int index, GpuTelemetry *telemet
     NvmlDevice device = NULL;
     if (context->device_get_handle_by_index_v2(index, &device) != NVML_SUCCESS) return false;
 
+    /* Reset every optional sensor before querying so stale values can never
+       survive a transient driver or capability failure. */
     telemetry->nvml_available = true;
     telemetry->index = index;
     telemetry->temperature_c = -1;
@@ -171,6 +173,8 @@ bool nvml_sample(NvmlContext *context, unsigned int index, GpuTelemetry *telemet
     snprintf(telemetry->driver, sizeof(telemetry->driver), "%s", context->driver_version);
     if (context->device_get_uuid) context->device_get_uuid(device, telemetry->uuid, (unsigned int)sizeof(telemetry->uuid));
 
+    /* Prefer memory v2 because it separates driver-reserved allocation, then
+       fall back to the older API exposed by legacy NVIDIA drivers. */
     bool memory_v2_ok = false;
     if (context->device_get_memory_info_v2) {
         NvmlMemoryV2 memory_v2;
@@ -201,6 +205,8 @@ bool nvml_sample(NvmlContext *context, unsigned int index, GpuTelemetry *telemet
         telemetry->memory_util = utilization.memory;
     }
 
+    /* Optional board sensors are independent; one unsupported call must not
+       suppress the rest of the snapshot. */
     unsigned int value = 0;
     if (context->device_get_temperature &&
         context->device_get_temperature(device, NVML_TEMPERATURE_GPU, &value) == NVML_SUCCESS) {

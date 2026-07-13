@@ -10,6 +10,8 @@ All notable user-facing changes are documented here. This project follows [Seman
 
 - Instrument C compilation as well as linking for Windows Control Flow Guard.
 - Add a tested CMake/MSBuild path for IDEs and accurate compiler-traced CodeQL analysis.
+- Create CSV logs with explicit read/write permissions and non-inheritable file descriptors.
+- Extend CLI tests to cover secure CSV creation and output.
 
 ## [1.1.1] - 2026-07-13
 

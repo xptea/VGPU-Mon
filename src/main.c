@@ -10,7 +10,10 @@
 #include <stdarg.h>
 #include <math.h>
 #include <errno.h>
-#include <limits.h>
+#include <fcntl.h>
+#include <io.h>
+#include <share.h>
+#include <sys/stat.h>
 #ifdef _DEBUG
 #include <crtdbg.h>
 #endif
@@ -418,7 +421,14 @@ static bool start_logging(App *app, const char *path) {
     wchar_t wide_path[MAX_PATH];
     int converted = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, app->log_path, -1,
                                         wide_path, _countof(wide_path));
-    app->log_file = converted > 0 ? _wfopen(wide_path, L"a+b") : NULL;
+    int descriptor = -1;
+    if (converted > 0 &&
+        _wsopen_s(&descriptor, wide_path,
+                  _O_APPEND | _O_CREAT | _O_BINARY | _O_WRONLY | _O_NOINHERIT,
+                  _SH_DENYNO, _S_IREAD | _S_IWRITE) == 0) {
+        app->log_file = _wfdopen(descriptor, L"ab");
+        if (!app->log_file) _close(descriptor);
+    }
     if (!app->log_file) {
         snprintf(app->message, sizeof(app->message), "Cannot open log: %s", app->log_path);
         app->message_until = GetTickCount64() + 4000;
@@ -882,8 +892,8 @@ static void render_chart_view(App *app, TextBuffer *buffer, int columns, int row
 
     int prefix_width = 8;
     int plot_width = columns - prefix_width;
+    /* The caller reserves at least eight rows before entering chart view. */
     int chart_height = rows - 6;
-    if (chart_height < 2) chart_height = 2;
     size_t shown = count < (size_t)plot_width ? count : (size_t)plot_width;
     size_t skip = count > shown ? count - shown : 0;
     int left_padding = plot_width - (int)shown;
@@ -1437,7 +1447,7 @@ static bool parse_unsigned_option(const char *text, unsigned int minimum,
     char *end = NULL;
     unsigned long parsed = strtoul(text, &end, 10);
     if (errno == ERANGE || end == text || *end != '\0' ||
-        parsed < minimum || parsed > maximum || parsed > UINT_MAX) return false;
+        parsed < minimum || parsed > maximum) return false;
     *value = (unsigned int)parsed;
     return true;
 }
@@ -1456,49 +1466,55 @@ static int app_main(int argc, char **argv) {
     bool json = false;
     const char *initial_log = NULL;
 
-    for (int i = 1; i < argc; ++i) {
-        if (strcmp(argv[i], "--once") == 0) once = true;
-        else if (strcmp(argv[i], "--json") == 0) { json = true; once = true; }
-        else if (strcmp(argv[i], "--chart") == 0) {
+    /* Consume arguments from left to right; value-taking options advance the
+       cursor explicitly so malformed or missing values fail predictably. */
+    int argument_index = 1;
+    while (argument_index < argc) {
+        const char *argument = argv[argument_index++];
+        if (strcmp(argument, "--once") == 0) once = true;
+        else if (strcmp(argument, "--json") == 0) { json = true; once = true; }
+        else if (strcmp(argument, "--chart") == 0) {
             app->chart_view = true;
-            if (i + 1 < argc && argv[i + 1][0] != '-') {
-                if (!parse_chart_metric(argv[i + 1], &app->chart_metric)) {
-                    fprintf(stderr, "Unknown chart metric: %s\n", argv[i + 1]);
+            if (argument_index < argc && argv[argument_index][0] != '-') {
+                const char *metric = argv[argument_index++];
+                if (!parse_chart_metric(metric, &app->chart_metric)) {
+                    fprintf(stderr, "Unknown chart metric: %s\n", metric);
                     free(app);
                     return 2;
                 }
-                i++;
             }
         }
-        else if (strcmp(argv[i], "--vram") == 0) { app->chart_view = true; app->chart_metric = CHART_VRAM; }
-        else if (strcmp(argv[i], "--percent") == 0 || strcmp(argv[i], "--utilization") == 0) { app->chart_view = true; app->chart_metric = CHART_GPU; }
-        else if (strcmp(argv[i], "--memory-controller") == 0) { app->chart_view = true; app->chart_metric = CHART_MEMORY_CONTROLLER; }
-        else if (strcmp(argv[i], "--3d") == 0) { app->chart_view = true; app->chart_metric = CHART_3D; }
-        else if (strcmp(argv[i], "--copy") == 0) { app->chart_view = true; app->chart_metric = CHART_COPY; }
-        else if (strcmp(argv[i], "--decode") == 0 || strcmp(argv[i], "--video-decode") == 0) { app->chart_view = true; app->chart_metric = CHART_VIDEO_DECODE; }
-        else if (strcmp(argv[i], "--encode") == 0 || strcmp(argv[i], "--video-encode") == 0) { app->chart_view = true; app->chart_metric = CHART_VIDEO_ENCODE; }
-        else if (strcmp(argv[i], "--compute") == 0) { app->chart_view = true; app->chart_metric = CHART_COMPUTE; }
-        else if (strcmp(argv[i], "--temperature") == 0 || strcmp(argv[i], "--temp") == 0) { app->chart_view = true; app->chart_metric = CHART_TEMPERATURE; }
-        else if (strcmp(argv[i], "--power") == 0) { app->chart_view = true; app->chart_metric = CHART_POWER; }
-        else if (strcmp(argv[i], "--gpu") == 0 && i + 1 < argc) {
-            if (!parse_unsigned_option(argv[++i], 0, VGPU_MAX_GPUS - 1, &app->selected_gpu)) {
-                fprintf(stderr, "Invalid GPU index: %s\n", argv[i]);
+        else if (strcmp(argument, "--vram") == 0) { app->chart_view = true; app->chart_metric = CHART_VRAM; }
+        else if (strcmp(argument, "--percent") == 0 || strcmp(argument, "--utilization") == 0) { app->chart_view = true; app->chart_metric = CHART_GPU; }
+        else if (strcmp(argument, "--memory-controller") == 0) { app->chart_view = true; app->chart_metric = CHART_MEMORY_CONTROLLER; }
+        else if (strcmp(argument, "--3d") == 0) { app->chart_view = true; app->chart_metric = CHART_3D; }
+        else if (strcmp(argument, "--copy") == 0) { app->chart_view = true; app->chart_metric = CHART_COPY; }
+        else if (strcmp(argument, "--decode") == 0 || strcmp(argument, "--video-decode") == 0) { app->chart_view = true; app->chart_metric = CHART_VIDEO_DECODE; }
+        else if (strcmp(argument, "--encode") == 0 || strcmp(argument, "--video-encode") == 0) { app->chart_view = true; app->chart_metric = CHART_VIDEO_ENCODE; }
+        else if (strcmp(argument, "--compute") == 0) { app->chart_view = true; app->chart_metric = CHART_COMPUTE; }
+        else if (strcmp(argument, "--temperature") == 0 || strcmp(argument, "--temp") == 0) { app->chart_view = true; app->chart_metric = CHART_TEMPERATURE; }
+        else if (strcmp(argument, "--power") == 0) { app->chart_view = true; app->chart_metric = CHART_POWER; }
+        else if (strcmp(argument, "--gpu") == 0 && argument_index < argc) {
+            const char *value = argv[argument_index++];
+            if (!parse_unsigned_option(value, 0, VGPU_MAX_GPUS - 1, &app->selected_gpu)) {
+                fprintf(stderr, "Invalid GPU index: %s\n", value);
                 free(app);
                 return 2;
             }
         }
-        else if (strcmp(argv[i], "--interval") == 0 && i + 1 < argc) {
-            if (!parse_unsigned_option(argv[++i], 250, 5000, &app->interval_ms)) {
-                fprintf(stderr, "Invalid interval: %s (expected 250-5000)\n", argv[i]);
+        else if (strcmp(argument, "--interval") == 0 && argument_index < argc) {
+            const char *value = argv[argument_index++];
+            if (!parse_unsigned_option(value, 250, 5000, &app->interval_ms)) {
+                fprintf(stderr, "Invalid interval: %s (expected 250-5000)\n", value);
                 free(app);
                 return 2;
             }
         }
-        else if (strcmp(argv[i], "--log") == 0 && i + 1 < argc) initial_log = argv[++i];
-        else if (strcmp(argv[i], "--demo") == 0) app->demo_mode = true;
-        else if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) { print_help(); free(app); return 0; }
-        else if (strcmp(argv[i], "--version") == 0) { printf("VGPU-Mon %s\n", VGPU_VERSION); free(app); return 0; }
-        else { fprintf(stderr, "Unknown or incomplete option: %s\n", argv[i]); print_help(); free(app); return 2; }
+        else if (strcmp(argument, "--log") == 0 && argument_index < argc) initial_log = argv[argument_index++];
+        else if (strcmp(argument, "--demo") == 0) app->demo_mode = true;
+        else if (strcmp(argument, "--help") == 0 || strcmp(argument, "-h") == 0) { print_help(); free(app); return 0; }
+        else if (strcmp(argument, "--version") == 0) { printf("VGPU-Mon %s\n", VGPU_VERSION); free(app); return 0; }
+        else { fprintf(stderr, "Unknown or incomplete option: %s\n", argument); print_help(); free(app); return 2; }
     }
     if (app->chart_view && once) {
         fputs("VGPU-Mon: --chart cannot be combined with --once or --json. Use --json for redirected telemetry.\n", stderr);
@@ -1506,6 +1522,8 @@ static int app_main(int argc, char **argv) {
         return 2;
     }
 
+    /* Provider initialization is deliberately followed by unconditional,
+       idempotent cleanup on every exit path so partial opens cannot leak. */
     if (!initialize_app(app)) {
         fprintf(stderr, "VGPU-Mon: no hardware GPU was found.\nNVML: %s\nDXGI: %s\n",
                 app->nvml.error[0] ? app->nvml.error : "unavailable",
@@ -1565,6 +1583,8 @@ static int app_main(int argc, char **argv) {
     }
     ULONGLONG next_sample = GetTickCount64() + app->interval_ms;
     bool running = true;
+    /* The interactive loop separates sampling from repaint requests and
+       always composes one bounded frame for the current terminal geometry. */
     while (running && !InterlockedCompareExchange(&g_interrupted, 0, 0)) {
         bool dirty = false;
         poll_console_input(app, console.input, &running, &dirty);

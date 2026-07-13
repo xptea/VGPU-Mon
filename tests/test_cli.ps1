@@ -60,6 +60,20 @@ if (-not $snapshot.engines.'3d_percent' -or -not $snapshot.engines.copy_percent)
     throw 'Demo JSON did not include engine telemetry.'
 }
 
+$logPath = Join-Path $root 'build\test-cli-log.csv'
+Remove-Item -LiteralPath $logPath -Force -ErrorAction SilentlyContinue
+try {
+    [void](Invoke-ExpectedExit 0 @('--demo', '--interval', '250', '--log', $logPath, '--json'))
+    $log = Get-Content -LiteralPath $logPath
+    if ($log.Count -lt 2 -or $log[0] -notlike 'timestamp,gpu_index,*' -or
+        -not ($log | Where-Object { $_ -like '*renderer.exe*' })) {
+        throw 'CSV logging did not write its header and demo process rows.'
+    }
+}
+finally {
+    Remove-Item -LiteralPath $logPath -Force -ErrorAction SilentlyContinue
+}
+
 [void](Invoke-ExpectedExit 2 @('--interval', '100', '--once'))
 [void](Invoke-ExpectedExit 2 @('--gpu', 'nope', '--once'))
 [void](Invoke-ExpectedExit 2 @('--demo', '--chart', '--json'))

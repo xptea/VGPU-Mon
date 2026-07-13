@@ -132,6 +132,8 @@ int main(int argc, char **argv) {
     _CrtSetReportFile(_CRT_WARN, _CRTDBG_FILE_STDERR);
     _CrtSetDbgFlag(_CRTDBG_ALLOC_MEM_DF);
 #endif
+    /* Resolve the target before allocating ConPTY resources so setup failures
+       remain simple and leak-free. */
     const char *target_utf8 = argc > 1 ? argv[1] : "build\\vgpu-mon.exe";
     wchar_t target[MAX_PATH];
     if (!MultiByteToWideChar(CP_UTF8, 0, target_utf8, -1, target, _countof(target))) {
@@ -144,6 +146,8 @@ int main(int argc, char **argv) {
         return 1;
     }
 
+    /* The pseudo console owns its pipe ends after creation; the test retains
+       only the writer and asynchronous capture reader. */
     HANDLE input_read = NULL, input_write = NULL;
     HANDLE output_read = NULL, output_write = NULL;
     if (!CreatePipe(&input_read, &input_write, NULL, 0) ||
@@ -235,6 +239,8 @@ int main(int argc, char **argv) {
         return 1;
     }
 
+    /* Exercise chart switching, mouse sorting, and both shrink and grow paths
+       before requesting the application's normal quit path. */
     Sleep(700);
     DWORD written = 0;
     WriteFile(input_write, "c", 1, &written, NULL);
@@ -269,6 +275,8 @@ int main(int argc, char **argv) {
         return 1;
     }
 
+    /* Validate complete-frame bounds and terminal restoration from the raw VT
+       stream after the reader has stopped, avoiding concurrent inspection. */
     size_t clears = count_occurrences(capture.data, "\x1b[2J");
     size_t line_erases = count_occurrences(capture.data, "\x1b[K");
     size_t max_frame_lines = max_complete_frame_newlines(capture.data);
