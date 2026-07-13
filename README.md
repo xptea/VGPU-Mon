@@ -24,7 +24,7 @@ It is a real full-screen terminal application, not a wrapper around `nvidia-smi`
 - Pause/resume and adjustable 250-5000 ms refresh interval
 - CSV logging
 - One-shot human-readable and JSON output for scripts
-- Automatic, checksum-verified updates for installed interactive launches
+- Automatic, checksum-verified background updates for installed interactive launches
 - Statically linked MSVC runtime; no NVML SDK or third-party runtime required
 
 ## Runtime requirements and compatibility
@@ -63,7 +63,7 @@ vgpu --json
 
 Existing terminal processes keep their old environment. Uninstalling VGPU-Mon from Windows Settings removes the PATH entry only when the installer originally added it.
 
-Starting with VGPU-Mon 1.2.0, an installed interactive launch checks the latest stable release's small `version.txt` manifest. If a newer version exists, VGPU-Mon downloads that exact versioned installer, verifies its SHA-256 with Windows cryptography, installs it without elevation, and reopens with the same interactive options. Network or GitHub failures do not prevent the monitor from opening. Redirected output and script commands (`--json`, `--once`, `--version`, and `--demo`) never perform an automatic update check.
+Starting with VGPU-Mon 1.2.0, an installed interactive launch checks the latest stable release's small `version.txt` manifest. If a newer version exists, VGPU-Mon downloads that exact versioned installer, verifies its SHA-256 with Windows cryptography, and installs it without elevation. The command then returns cleanly; run `vgpu` again after a few seconds to start the updated monitor. The updater deliberately does not relaunch inside the old terminal because the shell would already own that terminal's input. Network or GitHub failures do not prevent the monitor from opening. Redirected output and script commands (`--json`, `--once`, `--version`, and `--demo`) never perform an automatic update check.
 
 Use `vgpu --update` to check immediately. Use `--no-update` for one launch or set `VGPU_MON_NO_UPDATE=1` to disable automatic checks. Portable ZIP copies do not update silently; `vgpu --update` converts a portable copy into the normal per-user installation.
 
@@ -211,9 +211,9 @@ Options:
 - **DXGI 1.4** enumerates hardware adapters and reports local video-memory usage and the current OS memory budget.
 - **NVML** supplies NVIDIA board telemetry. VGPU-Mon uses the versioned memory API to separate driver/firmware-reserved VRAM from application allocation. `nvml.dll` is discovered and loaded at runtime; the project does not ship NVIDIA libraries.
 
-VRAM figures from NVML, DXGI, and WDDM can differ because they describe different layers: physical board usage, the operating-system budget, and per-process commitments. A WDDM process commitment can exceed physical VRAM because it is not a resident-byte measurement. VGPU-Mon marks process columns with `*`, labels JSON/CSV fields as commitments, and keeps the physical total and OS budget separate.
+VRAM figures from NVML, DXGI, and WDDM can differ because they describe different accounting layers. Per-process WDDM values include memory shared across processes, so adding every row can exceed the physical total even though a valid individual dedicated-memory reading cannot. VGPU-Mon marks process columns with `*`, labels JSON/CSV fields as commitments, and keeps the physical total and OS budget separate.
 
-Windows also has a documented GPU Process Memory counter issue that can produce implausibly large per-process values. VGPU-Mon appends `!`, raises `wddm_process_memory_warning` in JSON, and preserves the raw value for diagnosis instead of silently clamping it. Physical board usage at the top remains sourced from NVML/DXGI.
+Windows also has a documented GPU Process Memory counter issue that accumulates stale allocations and can produce implausibly large per-process values. If one process's dedicated value exceeds the GPU's physical total, VGPU-Mon quarantines that snapshot's entire dedicated column: every row displays `N/A !`, CSV fields are blank, JSON values are `null`, and `wddm_process_memory_warning` is raised. The complete snapshot is quarantined because smaller values from the same affected counter source can look plausible while still being stale. Physical board usage at the top remains sourced from NVML/DXGI.
 
 Terminating a process is not the same as resetting a GPU. VGPU-Mon deliberately does not expose driver resets or unsafe attempts to cancel individual command queues.
 

@@ -103,6 +103,12 @@ try {
         throw "The updater did not install VGPU-Mon $ExpectedVersion before the timeout."
     }
 
+    $unexpectedRelaunch = @(Get-Process -Name 'vgpu' -ErrorAction SilentlyContinue |
+        Where-Object { $_.Path -and $_.Path -ieq $installedExe })
+    if ($unexpectedRelaunch.Count -ne 0) {
+        throw 'The updater relaunched a foreground monitor after returning terminal ownership.'
+    }
+
     $remainingTemporaryFiles = @(Wait-UpdaterTemporaryCleanup -Seconds 30)
     if ($remainingTemporaryFiles.Count -ne 0) {
         throw "The updater handoff did not finish: $($remainingTemporaryFiles.FullName -join ', ')"
@@ -146,4 +152,4 @@ if ($newTemporaryFiles.Count -ne 0) {
     throw "Updater temporary files were not cleaned: $($newTemporaryFiles.FullName -join ', ')"
 }
 
-Write-Host "Live automatic update, relaunch, PATH, cleanup, and uninstall tests passed for $ExpectedVersion."
+Write-Host "Live automatic update, clean terminal return, PATH, cleanup, and uninstall tests passed for $ExpectedVersion."

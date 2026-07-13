@@ -3,7 +3,6 @@
 
 #include <bcrypt.h>
 #include <limits.h>
-#include <shlobj.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -382,14 +381,6 @@ static bool executable_is_installed(const wchar_t *executable) {
     return _wcsicmp(current, directory) == 0;
 }
 
-static bool get_default_installed_executable(wchar_t *path, size_t capacity) {
-    wchar_t local_app_data[MAX_PATH];
-    if (SHGetFolderPathW(NULL, CSIDL_LOCAL_APPDATA | CSIDL_FLAG_CREATE, NULL,
-                         SHGFP_TYPE_CURRENT, local_app_data) != S_OK) return false;
-    return _snwprintf_s(path, capacity, _TRUNCATE,
-                        L"%ls\\Programs\\VGPU-Mon\\vgpu.exe", local_app_data) > 0;
-}
-
 static bool script_append(ScriptBuffer *buffer, const char *text) {
     size_t length = strlen(text);
     if (!buffer || !buffer->data || length > buffer->capacity - buffer->length - 1U)
@@ -400,30 +391,7 @@ static bool script_append(ScriptBuffer *buffer, const char *text) {
     return true;
 }
 
-static bool script_append_quoted_wide(ScriptBuffer *buffer, const wchar_t *text) {
-    if (!script_append(buffer, "'")) return false;
-    int required = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, text, -1,
-                                       NULL, 0, NULL, NULL);
-    if (required <= 0) return false;
-    char *utf8 = (char *)HeapAlloc(GetProcessHeap(), 0, (size_t)required);
-    if (!utf8) return false;
-    bool success = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, text, -1,
-                                       utf8, required, NULL, NULL) > 0;
-    if (success) {
-        for (char *cursor = utf8; *cursor; ++cursor) {
-            if (*cursor == '\'') success = script_append(buffer, "''");
-            else {
-                char value[2] = {*cursor, '\0'};
-                success = script_append(buffer, value);
-            }
-            if (!success) break;
-        }
-    }
-    HeapFree(GetProcessHeap(), 0, utf8);
-    return success && script_append(buffer, "'");
-}
-
-static bool write_helper_script(const wchar_t *path, int argc, wchar_t **argv) {
+static bool write_helper_script(const wchar_t *path) {
     ScriptBuffer script;
     memset(&script, 0, sizeof(script));
     script.capacity = UPDATE_HELPER_CAPACITY;
@@ -431,41 +399,22 @@ static bool write_helper_script(const wchar_t *path, int argc, wchar_t **argv) {
     if (!script.data) return false;
     bool success = script_append(&script,
         "[CmdletBinding()]\r\n"
-        "param([Parameter(Mandatory=$true)][string]$InstallerPath,"
-        "[Parameter(Mandatory=$true)][string]$RelaunchPath)\r\n"
+        "param([Parameter(Mandatory=$true)][string]$InstallerPath)\r\n"
         "$ErrorActionPreference = 'Stop'\r\n"
-        "$relaunchArguments = @('--no-update'");
-    if (success && updater_is_forced(argc, argv)) {
-        success = script_append(&script, ",'--version'");
-    }
-    for (int index = 1; success && index < argc; ++index) {
-        if (wide_argument_equals(argv[index], L"--update") ||
-            wide_argument_equals(argv[index], L"--no-update")) continue;
-        success = script_append(&script, ",") &&
-                  script_append_quoted_wide(&script, argv[index]);
-    }
-    success = success && script_append(&script,
-        ")\r\n"
-        "$updateError = $null\r\n"
+        "$exitCode = 1\r\n"
         "try {\r\n"
         "  Start-Sleep -Milliseconds 750\r\n"
         "  $process = Start-Process -FilePath $InstallerPath -ArgumentList "
         "@('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-') "
         "-Wait -PassThru -WindowStyle Hidden\r\n"
-        "  if ($process.ExitCode -ne 0) { throw \"Setup exited with code "
-        "$($process.ExitCode).\" }\r\n"
+        "  $exitCode = $process.ExitCode\r\n"
         "}\r\n"
-        "catch { $updateError = $_.Exception.Message }\r\n"
+        "catch { $exitCode = 1 }\r\n"
         "finally {\r\n"
         "  Remove-Item -LiteralPath $InstallerPath -Force -ErrorAction SilentlyContinue\r\n"
         "  Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue\r\n"
         "}\r\n"
-        "if ($updateError) { Write-Warning \"VGPU-Mon update failed: $updateError\" }\r\n"
-        "if (Test-Path -LiteralPath $RelaunchPath) {\r\n"
-        "  & $RelaunchPath @relaunchArguments\r\n"
-        "  exit $LASTEXITCODE\r\n"
-        "}\r\n"
-        "exit 1\r\n");
+        "exit $exitCode\r\n");
 
     HANDLE file = INVALID_HANDLE_VALUE;
     if (success) {
@@ -488,8 +437,7 @@ static bool write_helper_script(const wchar_t *path, int argc, wchar_t **argv) {
     return success;
 }
 
-static bool launch_helper(const wchar_t *helper, const wchar_t *installer,
-                          const wchar_t *relaunch) {
+static bool launch_helper(const wchar_t *helper, const wchar_t *installer) {
     wchar_t system_directory[MAX_PATH], powershell[MAX_PATH];
     const size_t command_capacity = 32768U;
     wchar_t *command = (wchar_t *)HeapAlloc(
@@ -502,8 +450,8 @@ static bool launch_helper(const wchar_t *helper, const wchar_t *installer,
                      system_directory) <= 0 ||
         _snwprintf_s(command, command_capacity, _TRUNCATE,
                      L"\"%ls\" -NoLogo -NoProfile -ExecutionPolicy Bypass "
-                     L"-File \"%ls\" -InstallerPath \"%ls\" -RelaunchPath \"%ls\"",
-                     powershell, helper, installer, relaunch) <= 0) {
+                     L"-File \"%ls\" -InstallerPath \"%ls\"",
+                     powershell, helper, installer) <= 0) {
         HeapFree(GetProcessHeap(), 0, command);
         return false;
     }
@@ -513,8 +461,12 @@ static bool launch_helper(const wchar_t *helper, const wchar_t *installer,
     memset(&startup, 0, sizeof(startup));
     memset(&process, 0, sizeof(process));
     startup.cb = sizeof(startup);
-    if (!CreateProcessW(powershell, command, NULL, NULL, TRUE,
-                        CREATE_UNICODE_ENVIRONMENT, NULL, NULL, &startup, &process)) {
+    /* The invoking shell starts reading from the console again as soon as this
+       process exits. The installer helper must therefore be fully detached and
+       must never relaunch another foreground console reader in the same tab. */
+    if (!CreateProcessW(powershell, command, NULL, NULL, FALSE,
+                        CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT,
+                        NULL, NULL, &startup, &process)) {
         HeapFree(GetProcessHeap(), 0, command);
         return false;
     }
@@ -527,14 +479,13 @@ static bool launch_helper(const wchar_t *helper, const wchar_t *installer,
 VgpuUpdateResult updater_check_and_start(int argc, wchar_t **argv,
                                          const char *current_version,
                                          bool force) {
-    wchar_t current_executable[MAX_PATH], relaunch_path[MAX_PATH];
+    (void)argc;
+    (void)argv;
+    wchar_t current_executable[MAX_PATH];
     if (!get_current_executable(current_executable, _countof(current_executable)))
         return VGPU_UPDATE_ERROR;
     bool installed = executable_is_installed(current_executable);
     if (!installed && !force) return VGPU_UPDATE_SKIPPED;
-    if (installed) wcscpy_s(relaunch_path, _countof(relaunch_path), current_executable);
-    else if (!get_default_installed_executable(relaunch_path, _countof(relaunch_path)))
-        return VGPU_UPDATE_ERROR;
 
     char manifest_text[UPDATE_MAX_MANIFEST_BYTES + 1U];
     size_t manifest_size = 0;
@@ -576,13 +527,14 @@ VgpuUpdateResult updater_check_and_start(int argc, wchar_t **argv,
         !sha256_file(installer_path, actual_hash) ||
         memcmp(actual_hash, manifest.sha256, sizeof(actual_hash)) != 0) goto cleanup;
     installer_ready = true;
-    if (!write_helper_script(helper_path, argc, argv)) goto cleanup;
+    if (!write_helper_script(helper_path)) goto cleanup;
     helper_ready = true;
 
-    printf("Updating VGPU-Mon %s to %s; the monitor will reopen automatically...\n",
+    printf("Updating VGPU-Mon %s to %s in the background. "
+           "Run vgpu again in a few seconds.\n",
            current_version, manifest.version);
     fflush(stdout);
-    if (!launch_helper(helper_path, installer_path, relaunch_path)) goto cleanup;
+    if (!launch_helper(helper_path, installer_path)) goto cleanup;
     SecureZeroMemory(actual_hash, sizeof(actual_hash));
     return VGPU_UPDATE_STARTED;
 

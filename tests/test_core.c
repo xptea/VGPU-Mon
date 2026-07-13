@@ -24,6 +24,29 @@ static void test_format_bytes(void) {
     EXPECT(strcmp(format_bytes(0, buffer, sizeof(buffer)), "0 B") == 0);
     EXPECT(strcmp(format_bytes(1024, buffer, sizeof(buffer)), "1.00 KiB") == 0);
     EXPECT(strcmp(format_bytes(1024ULL * 1024ULL * 1024ULL, buffer, sizeof(buffer)), "1.00 GiB") == 0);
+    EXPECT(dedicated_gpu_memory_plausible(16ULL * 1024ULL * 1024ULL * 1024ULL,
+                                         16ULL * 1024ULL * 1024ULL * 1024ULL));
+    EXPECT(!dedicated_gpu_memory_plausible(75ULL * 1024ULL * 1024ULL * 1024ULL,
+                                          16ULL * 1024ULL * 1024ULL * 1024ULL));
+    EXPECT(dedicated_gpu_memory_plausible(UINT64_MAX, 0));
+
+    GpuProcess valid[2] = {{0}};
+    valid[0].dedicated_bytes = 9ULL * 1024ULL * 1024ULL * 1024ULL;
+    valid[1].dedicated_bytes = 512ULL * 1024ULL * 1024ULL;
+    EXPECT(!quarantine_invalid_dedicated_gpu_memory(
+        valid, _countof(valid), 16ULL * 1024ULL * 1024ULL * 1024ULL));
+    EXPECT(!valid[0].dedicated_memory_invalid && valid[0].dedicated_bytes != 0);
+
+    GpuProcess corrupt[3] = {{0}};
+    corrupt[0].dedicated_bytes = 9ULL * 1024ULL * 1024ULL * 1024ULL;
+    corrupt[1].dedicated_bytes = 75ULL * 1024ULL * 1024ULL * 1024ULL;
+    corrupt[2].dedicated_bytes = 512ULL * 1024ULL * 1024ULL;
+    EXPECT(quarantine_invalid_dedicated_gpu_memory(
+        corrupt, _countof(corrupt), 16ULL * 1024ULL * 1024ULL * 1024ULL));
+    for (size_t i = 0; i < _countof(corrupt); ++i) {
+        EXPECT(corrupt[i].dedicated_memory_invalid);
+        EXPECT(corrupt[i].dedicated_bytes == 0);
+    }
 }
 
 static void test_parse_gpu_instance(void) {

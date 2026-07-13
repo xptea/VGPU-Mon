@@ -298,19 +298,20 @@ int main(int argc, char **argv) {
     bool clicked_sort = strstr(capture.data, "GPU ^") != NULL;
     bool zoomed_chart = strstr(capture.data, "Span 2m00s") != NULL;
     bool rendered_hover = strstr(capture.data, "Point ") != NULL;
+    bool no_sort_hint = strstr(capture.data, "Click headers to sort") == NULL;
     bool no_debug_leaks = strstr(capture.data, "Detected memory leaks!") == NULL;
     bool passed = SUCCEEDED(resize_small) && SUCCEEDED(resize_large) && wait == WAIT_OBJECT_0 &&
                   exit_code == 0 && clears >= 1 && line_erases >= 20 && max_frame_lines <= 29 &&
                   max_frame_columns <= 120 &&
                   entered_alternate && left_alternate && rendered_chart && clicked_sort &&
-                  zoomed_chart && rendered_hover && no_debug_leaks && !capture.overflow;
+                  zoomed_chart && rendered_hover && no_sort_hint && no_debug_leaks && !capture.overflow;
     if (!passed) {
         fprintf(stderr,
-                "ConPTY test failed: exit=%lu wait=%lu clears=%zu line-erases=%zu max-frame-newlines=%zu max-frame-columns=%zu enter=%d leave=%d chart=%d mouse-sort=%d zoom=%d hover=%d no-leaks=%d overflow=%d resize=0x%08lx/0x%08lx bytes=%zu\n",
+                "ConPTY test failed: exit=%lu wait=%lu clears=%zu line-erases=%zu max-frame-newlines=%zu max-frame-columns=%zu enter=%d leave=%d chart=%d mouse-sort=%d zoom=%d hover=%d no-sort-hint=%d no-leaks=%d overflow=%d resize=0x%08lx/0x%08lx bytes=%zu\n",
                 (unsigned long)exit_code, (unsigned long)wait, clears, line_erases,
                 max_frame_lines, max_frame_columns,
                 entered_alternate, left_alternate, rendered_chart, clicked_sort,
-                zoomed_chart, rendered_hover, no_debug_leaks, capture.overflow,
+                zoomed_chart, rendered_hover, no_sort_hint, no_debug_leaks, capture.overflow,
                 (unsigned long)resize_small, (unsigned long)resize_large, capture.length);
         fputs("--- captured pseudoconsole output ---\n", stderr);
         fwrite(capture.data, 1, capture.length, stderr);

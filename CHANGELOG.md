@@ -4,6 +4,19 @@ All notable user-facing changes are documented here. This project follows [Seman
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-07-13
+
+### Fixed
+
+- Quarantine the complete WDDM dedicated-memory snapshot when Windows returns an impossible per-process value, preventing smaller stale values from being presented as trustworthy VRAM usage.
+- Detach the installer helper from the terminal and stop relaunching a competing foreground monitor after the invoking shell regains keyboard input.
+- Remove the persistent `Click headers to sort` hint from the interactive footer.
+
+### Security and quality
+
+- Return `null`/blank dedicated-memory values in JSON and CSV whenever the affected WDDM snapshot is quarantined.
+- Exercise snapshot-wide WDDM quarantine and verify that live update handoff never relaunches an input-competing monitor.
+
 ## [1.3.0] - 2026-07-13
 
 ### Added
