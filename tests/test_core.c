@@ -30,23 +30,24 @@ static void test_format_bytes(void) {
                                           16ULL * 1024ULL * 1024ULL * 1024ULL));
     EXPECT(dedicated_gpu_memory_plausible(UINT64_MAX, 0));
 
-    GpuProcess valid[2] = {{0}};
-    valid[0].dedicated_bytes = 9ULL * 1024ULL * 1024ULL * 1024ULL;
-    valid[1].dedicated_bytes = 512ULL * 1024ULL * 1024ULL;
-    EXPECT(!quarantine_invalid_dedicated_gpu_memory(
-        valid, _countof(valid), 16ULL * 1024ULL * 1024ULL * 1024ULL));
-    EXPECT(!valid[0].dedicated_memory_invalid && valid[0].dedicated_bytes != 0);
+    GpuProcess rows[4] = {{0}};
+    rows[0].dedicated_bytes = 9ULL * 1024ULL * 1024ULL * 1024ULL;
+    rows[1].dedicated_bytes = 75ULL * 1024ULL * 1024ULL * 1024ULL;
+    rows[2].dedicated_bytes = 512ULL * 1024ULL * 1024ULL;
+    rows[3].dedicated_bytes = 2ULL * 1024ULL * 1024ULL * 1024ULL;
+    EXPECT(invalidate_implausible_dedicated_gpu_memory(
+        rows, _countof(rows), 16ULL * 1024ULL * 1024ULL * 1024ULL,
+        4ULL * 1024ULL * 1024ULL * 1024ULL, true) == 2);
+    EXPECT(rows[0].dedicated_memory_invalid && rows[0].dedicated_bytes == 0);
+    EXPECT(rows[1].dedicated_memory_invalid && rows[1].dedicated_bytes == 0);
+    EXPECT(!rows[2].dedicated_memory_invalid && rows[2].dedicated_bytes != 0);
+    EXPECT(!rows[3].dedicated_memory_invalid && rows[3].dedicated_bytes != 0);
 
-    GpuProcess corrupt[3] = {{0}};
-    corrupt[0].dedicated_bytes = 9ULL * 1024ULL * 1024ULL * 1024ULL;
-    corrupt[1].dedicated_bytes = 75ULL * 1024ULL * 1024ULL * 1024ULL;
-    corrupt[2].dedicated_bytes = 512ULL * 1024ULL * 1024ULL;
-    EXPECT(quarantine_invalid_dedicated_gpu_memory(
-        corrupt, _countof(corrupt), 16ULL * 1024ULL * 1024ULL * 1024ULL));
-    for (size_t i = 0; i < _countof(corrupt); ++i) {
-        EXPECT(corrupt[i].dedicated_memory_invalid);
-        EXPECT(corrupt[i].dedicated_bytes == 0);
-    }
+    GpuProcess total_only = {0};
+    total_only.dedicated_bytes = 9ULL * 1024ULL * 1024ULL * 1024ULL;
+    EXPECT(invalidate_implausible_dedicated_gpu_memory(
+        &total_only, 1, 16ULL * 1024ULL * 1024ULL * 1024ULL, 0, false) == 0);
+    EXPECT(!total_only.dedicated_memory_invalid);
 }
 
 static void test_parse_gpu_instance(void) {

@@ -28,7 +28,7 @@ The interactive UI uses Windows console input records and VT output. Every updat
 
 ## Accounting caveats
 
-NVML physical allocation, DXGI OS budget/usage, and WDDM per-process commitments describe different layers and do not necessarily sum. Microsoft documents that GPU Process Memory can accumulate stale allocations. If one dedicated row exceeds the physical GPU total, the entire dedicated snapshot is reported as unavailable: once the counter source is demonstrably corrupt, smaller rows cannot be distinguished safely from stale values.
+NVML physical allocation, DXGI OS budget/usage, and WDDM per-process commitments describe different layers and do not necessarily sum. Microsoft documents that GPU Process Memory can accumulate stale allocations. VGPU-Mon rejects only an individually impossible dedicated row and preserves other process values. The upper bound is physical VRAM, tightened on NVIDIA hardware to current NVML board allocation plus bounded sampling slack.
 
 The displayed per-process GPU percentage is the busiest engine for that process, matching the accounting style used by Windows Task Manager. It is not additive across dissimilar engines.
 
