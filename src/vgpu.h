@@ -12,7 +12,8 @@
 #define VGPU_MAX_GPUS 16
 #define VGPU_MAX_PROCESSES 4096
 #define VGPU_HISTORY_SIZE 72
-#define VGPU_CHART_HISTORY_SIZE 512
+#define VGPU_CHART_HISTORY_SIZE 14400
+#define VGPU_CHART_DEFAULT_WINDOW_MS 60000ULL
 
 typedef struct {
     unsigned int index;

@@ -123,8 +123,21 @@ typedef struct {
     size_t history_count;
     size_t history_next;
     double chart_history[CHART_METRIC_COUNT][VGPU_CHART_HISTORY_SIZE];
+    ULONGLONG chart_history_time[VGPU_CHART_HISTORY_SIZE];
     size_t chart_history_count;
     size_t chart_history_next;
+    ULONGLONG chart_window_ms;
+    ULONGLONG chart_pan_ms;
+    bool chart_hover_active;
+    int chart_hover_x;
+    int chart_hover_y;
+    int chart_plot_left;
+    int chart_plot_right;
+    int chart_plot_top;
+    int chart_plot_bottom;
+    double *chart_plot_values;
+    unsigned char *chart_plot_present;
+    size_t chart_plot_capacity;
     FILE *log_file;
     char log_path[MAX_PATH];
     ProcessDetails details_cache;
@@ -302,6 +315,14 @@ static void update_visible_processes(App *app) {
 }
 
 static void add_history_sample(App *app) {
+    ULONGLONG sampled_at = GetTickCount64();
+    if (app->chart_history_count > 0 && app->chart_pan_ms > 0) {
+        size_t newest = (app->chart_history_next + VGPU_CHART_HISTORY_SIZE - 1) %
+                        VGPU_CHART_HISTORY_SIZE;
+        ULONGLONG previous = app->chart_history_time[newest];
+        if (sampled_at > previous) app->chart_pan_ms += sampled_at - previous;
+    }
+
     app->utilization_history[app->history_next] = app->telemetry.gpu_util;
     double memory_percent = app->telemetry.memory_total
         ? (double)app->telemetry.memory_used * 100.0 / (double)app->telemetry.memory_total : 0.0;
@@ -322,6 +343,7 @@ static void add_history_sample(App *app) {
     values[CHART_POWER] = app->telemetry.power_w >= 0 ? app->telemetry.power_w : 0.0;
     for (size_t i = 0; i < CHART_METRIC_COUNT; ++i)
         app->chart_history[i][app->chart_history_next] = values[i];
+    app->chart_history_time[app->chart_history_next] = sampled_at;
     app->chart_history_next = (app->chart_history_next + 1) % VGPU_CHART_HISTORY_SIZE;
     if (app->chart_history_count < VGPU_CHART_HISTORY_SIZE) app->chart_history_count++;
 }
@@ -369,6 +391,135 @@ static bool chart_metric_available(const App *app, ChartMetric metric) {
         case CHART_POWER: return app->telemetry.power_w >= 0;
         default: return false;
     }
+}
+
+static size_t chart_oldest_index(const App *app) {
+    return app->chart_history_count < VGPU_CHART_HISTORY_SIZE ? 0 : app->chart_history_next;
+}
+
+static size_t chart_ring_index(const App *app, size_t logical) {
+    return (chart_oldest_index(app) + logical) % VGPU_CHART_HISTORY_SIZE;
+}
+
+static ULONGLONG chart_timestamp(const App *app, size_t logical) {
+    return app->chart_history_time[chart_ring_index(app, logical)];
+}
+
+static double chart_value(const App *app, ChartMetric metric, size_t logical) {
+    return app->chart_history[metric][chart_ring_index(app, logical)];
+}
+
+static ULONGLONG chart_max_window_ms(const App *app) {
+    ULONGLONG maximum = (ULONGLONG)app->interval_ms * (ULONGLONG)VGPU_CHART_HISTORY_SIZE;
+    ULONGLONG duration = 0;
+    if (app->chart_history_count > 1) {
+        duration = chart_timestamp(app, app->chart_history_count - 1) - chart_timestamp(app, 0);
+    }
+    if (duration > maximum) maximum = duration;
+    return maximum < 10000ULL ? 10000ULL : maximum;
+}
+
+static void clamp_chart_window(App *app) {
+    ULONGLONG minimum = (ULONGLONG)app->interval_ms * 2ULL;
+    ULONGLONG maximum = chart_max_window_ms(app);
+    if (minimum < 10000ULL) minimum = 10000ULL;
+    if (minimum > maximum) minimum = maximum;
+    if (app->chart_window_ms < minimum) app->chart_window_ms = minimum;
+    if (app->chart_window_ms > maximum) app->chart_window_ms = maximum;
+}
+
+static ULONGLONG chart_max_pan_ms(const App *app) {
+    if (app->chart_history_count < 2) return 0;
+    ULONGLONG duration = chart_timestamp(app, app->chart_history_count - 1) - chart_timestamp(app, 0);
+    return duration > app->chart_window_ms ? duration - app->chart_window_ms : 0;
+}
+
+static void clamp_chart_pan(App *app) {
+    ULONGLONG maximum = chart_max_pan_ms(app);
+    if (app->chart_pan_ms > maximum) app->chart_pan_ms = maximum;
+}
+
+static void format_chart_duration(ULONGLONG milliseconds, char *buffer, size_t buffer_size) {
+    if (milliseconds < 1000ULL) {
+        snprintf(buffer, buffer_size, "%.1fs", (double)milliseconds / 1000.0);
+        return;
+    }
+    ULONGLONG seconds = milliseconds / 1000ULL;
+    if (seconds < 60ULL) {
+        snprintf(buffer, buffer_size, "%llus", (unsigned long long)seconds);
+    } else if (seconds < 3600ULL) {
+        snprintf(buffer, buffer_size, "%llum%02llus",
+                 (unsigned long long)(seconds / 60ULL),
+                 (unsigned long long)(seconds % 60ULL));
+    } else {
+        snprintf(buffer, buffer_size, "%lluh%02llum",
+                 (unsigned long long)(seconds / 3600ULL),
+                 (unsigned long long)((seconds % 3600ULL) / 60ULL));
+    }
+}
+
+static void zoom_chart(App *app, bool zoom_out) {
+    static const ULONGLONG windows[] = {
+        10000ULL, 15000ULL, 30000ULL, 60000ULL, 120000ULL, 300000ULL,
+        600000ULL, 1800000ULL, 3600000ULL, 7200000ULL, 14400000ULL,
+        28800000ULL, 43200000ULL, 86400000ULL
+    };
+    clamp_chart_window(app);
+    ULONGLONG minimum = (ULONGLONG)app->interval_ms * 2ULL;
+    ULONGLONG maximum = chart_max_window_ms(app);
+    if (minimum < 10000ULL) minimum = 10000ULL;
+    if (minimum > maximum) minimum = maximum;
+    ULONGLONG next = zoom_out ? maximum : minimum;
+
+    if (zoom_out) {
+        for (size_t i = 0; i < _countof(windows); ++i) {
+            if (windows[i] > app->chart_window_ms && windows[i] <= maximum) {
+                next = windows[i];
+                break;
+            }
+        }
+        if (maximum <= app->chart_window_ms) next = app->chart_window_ms;
+    } else {
+        for (size_t i = 0; i < _countof(windows); ++i) {
+            if (windows[i] >= minimum && windows[i] < app->chart_window_ms) next = windows[i];
+            if (windows[i] >= app->chart_window_ms) break;
+        }
+        if (minimum >= app->chart_window_ms) next = app->chart_window_ms;
+    }
+    app->chart_window_ms = next;
+    clamp_chart_pan(app);
+}
+
+static void pan_chart(App *app, int direction, bool full_window) {
+    clamp_chart_window(app);
+    clamp_chart_pan(app);
+    ULONGLONG step = full_window ? app->chart_window_ms : app->chart_window_ms / 4ULL;
+    if (step < 1000ULL) step = 1000ULL;
+    ULONGLONG maximum = chart_max_pan_ms(app);
+    if (direction > 0) {
+        app->chart_pan_ms = maximum - app->chart_pan_ms < step
+            ? maximum : app->chart_pan_ms + step;
+    } else {
+        app->chart_pan_ms = app->chart_pan_ms < step ? 0 : app->chart_pan_ms - step;
+    }
+}
+
+static bool ensure_chart_plot_capacity(App *app, size_t needed) {
+    if (needed <= app->chart_plot_capacity) return true;
+    if (needed > SIZE_MAX / sizeof(*app->chart_plot_values)) return false;
+    double *values = (double *)malloc(needed * sizeof(*values));
+    unsigned char *present = (unsigned char *)malloc(needed * sizeof(*present));
+    if (!values || !present) {
+        free(present);
+        free(values);
+        return false;
+    }
+    free(app->chart_plot_present);
+    free(app->chart_plot_values);
+    app->chart_plot_values = values;
+    app->chart_plot_present = present;
+    app->chart_plot_capacity = needed;
+    return true;
 }
 
 static void log_sample(App *app) {
@@ -678,12 +829,16 @@ static void render_help(TextBuffer *buffer) {
         "  l                     Toggle CSV logging  1-0     Select chart metric\n"
         "  Space                 Pause/resume\n"
         "  + / -                 Refresh faster/slower       h Help  q Quit\n\n"
+        "%sChart navigation%s\n"
+        "  Wheel                 Zoom visible time   Shift+wheel  Pan through history\n"
+        "  Left/Right            Pan by 1/4 view     PgUp/PgDn   Pan by a full view\n"
+        "  Home/End              Oldest retained/live         Hover  Exact point value\n\n"
         "%sAccounting%s\n"
         "  Process GPU %% is the busiest Windows GPU engine for that PID, matching Task Manager's\n"
         "  model. Dedicated/shared values come from WDDM counters. A trailing ! marks a value\n"
         "  larger than physical VRAM, a known Windows counter anomaly rather than residency.\n"
         "  Board telemetry comes from NVML; DXGI supplies a vendor-neutral memory fallback.\n",
-        ANSI_BOLD, ANSI_RESET, ANSI_BOLD, ANSI_RESET);
+        ANSI_BOLD, ANSI_RESET, ANSI_BOLD, ANSI_RESET, ANSI_BOLD, ANSI_RESET);
 }
 
 static void render_gpu_info(TextBuffer *buffer, const App *app) {
@@ -842,7 +997,7 @@ static const char *chart_color(ChartMetric metric) {
     return ANSI_GREEN;
 }
 
-static void render_chart_view(App *app, TextBuffer *buffer, int columns, int rows) {
+static void render_chart_view_fallback(App *app, TextBuffer *buffer, int columns, int rows) {
     app->header_hit_count = 0;
     app->table_header_row = -1;
     app->table_first_process_row = -1;
@@ -925,6 +1080,234 @@ static void render_chart_view(App *app, TextBuffer *buffer, int columns, int row
     const char *controls = columns >= 104
         ? "1 GPU  2 VRAM  3 3D  4 Copy  5 Decode  6 Encode  7 Compute  8 MemCtl  9 Temp  0 Power | c table | q quit"
         : "1-0 change metric | c table | Space pause | q quit";
+    char clipped_controls[256];
+    truncate_text(controls, clipped_controls, sizeof(clipped_controls), (size_t)columns);
+    text_buffer_append(buffer, "%s%s%s", ANSI_DIM, clipped_controls, ANSI_RESET);
+}
+
+static void render_chart_view(App *app, TextBuffer *buffer, int columns, int rows) {
+    app->header_hit_count = 0;
+    app->table_header_row = -1;
+    app->table_first_process_row = -1;
+    app->table_last_process_row = -1;
+    app->chart_plot_left = -1;
+    app->chart_plot_right = -1;
+    app->chart_plot_top = -1;
+    app->chart_plot_bottom = -1;
+    if (columns < 24 || rows < 8) {
+        app->chart_hover_active = false;
+        text_buffer_append(buffer, "%sVGPU-Mon%s\nResize to at least 24 x 8 for chart view.\n",
+                           ANSI_BOLD, ANSI_RESET);
+        return;
+    }
+
+    clamp_chart_window(app);
+    clamp_chart_pan(app);
+    /* Define the visible range with monotonic sample timestamps so changing
+       the refresh interval cannot distort older data. */
+    ChartMetric metric = app->chart_metric;
+    const char *unit = chart_metric_unit(metric);
+    bool available = chart_metric_available(app, metric);
+    double current = current_chart_value(app, metric);
+    double observed_max = 0.0;
+    size_t count = app->chart_history_count;
+    ULONGLONG newest_time = count ? chart_timestamp(app, count - 1) : GetTickCount64();
+    ULONGLONG view_end = newest_time >= app->chart_pan_ms
+        ? newest_time - app->chart_pan_ms : 0;
+    ULONGLONG view_start = view_end >= app->chart_window_ms
+        ? view_end - app->chart_window_ms : 0;
+
+    const int prefix_width = 8;
+    int plot_width = columns - prefix_width;
+    int chart_height = rows - 6;
+    /* Scratch columns are retained across frames and only grow on resize. */
+    if (!ensure_chart_plot_capacity(app, (size_t)plot_width)) {
+        render_chart_view_fallback(app, buffer, columns, rows);
+        return;
+    }
+    double *plot_values = app->chart_plot_values;
+    unsigned char *plot_present = app->chart_plot_present;
+    memset(plot_values, 0, (size_t)plot_width * sizeof(*plot_values));
+    memset(plot_present, 0, (size_t)plot_width * sizeof(*plot_present));
+
+    size_t first_visible = count;
+    size_t last_visible = count;
+    /* Bucket real samples into terminal columns while preserving peaks. */
+    for (size_t i = 0; i < count; ++i) {
+        ULONGLONG timestamp = chart_timestamp(app, i);
+        if (timestamp < view_start || timestamp > view_end) continue;
+        if (first_visible == count) first_visible = i;
+        last_visible = i + 1;
+        double value = chart_value(app, metric, i);
+        if (value > observed_max) observed_max = value;
+        ULONGLONG offset = timestamp - view_start;
+        int x = (int)((offset * (ULONGLONG)(plot_width - 1)) / app->chart_window_ms);
+        if (x < 0) x = 0;
+        if (x >= plot_width) x = plot_width - 1;
+        if (!plot_present[x] || value > plot_values[x]) plot_values[x] = value;
+        plot_present[x] = 1;
+    }
+
+    if (first_visible < count) {
+        /* Carry the last sample through empty columns to form a continuous
+           step chart without fabricating samples before history begins. */
+        size_t cursor = first_visible;
+        bool have_value = false;
+        double held_value = 0.0;
+        for (int x = 0; x < plot_width; ++x) {
+            ULONGLONG target = view_start +
+                (app->chart_window_ms * (ULONGLONG)x) / (ULONGLONG)(plot_width - 1);
+            while (cursor < last_visible && chart_timestamp(app, cursor) <= target) {
+                held_value = chart_value(app, metric, cursor);
+                have_value = true;
+                cursor++;
+            }
+            if (!plot_present[x] && have_value) {
+                plot_values[x] = held_value;
+                plot_present[x] = 1;
+            }
+        }
+    }
+
+    double scale = 100.0;
+    /* Percent metrics use a fixed scale; temperature and power expand only
+       when the visible data exceeds their normal ceiling. */
+    if (metric == CHART_POWER) {
+        scale = app->telemetry.power_limit_w > 0 ? app->telemetry.power_limit_w : 100.0;
+        if (observed_max > scale) scale = ceil(observed_max * 1.10 / 10.0) * 10.0;
+    } else if (metric == CHART_TEMPERATURE && observed_max > scale) {
+        scale = ceil(observed_max * 1.10 / 10.0) * 10.0;
+    }
+
+    char title[256], title_display[256], gpu_name[256], status[256], status_display[256];
+    char span[32], retained[32], edge[48];
+    format_chart_duration(app->chart_window_ms, span, sizeof(span));
+    ULONGLONG retained_ms = count > 1 ? newest_time - chart_timestamp(app, 0) : 0;
+    format_chart_duration(retained_ms, retained, sizeof(retained));
+    if (app->chart_pan_ms == 0) {
+        snprintf(edge, sizeof(edge), "LIVE");
+    } else {
+        char age[32];
+        format_chart_duration(app->chart_pan_ms, age, sizeof(age));
+        snprintf(edge, sizeof(edge), "%s ago", age);
+    }
+    snprintf(title, sizeof(title), "VGPU-Mon %s | %s%s%s",
+             VGPU_VERSION, chart_metric_name(metric), app->paused ? " | PAUSED" : "",
+             app->log_file ? " | REC" : "");
+    truncate_text(title, title_display, sizeof(title_display), (size_t)columns);
+    truncate_text(app->telemetry.name, gpu_name, sizeof(gpu_name), (size_t)columns);
+    if (available) {
+        snprintf(status, sizeof(status),
+                 "Now %.1f%s | View peak %.1f%s | Span %s | %s | Retained %s",
+                 current, unit, observed_max, unit, span, edge, retained);
+    } else {
+        snprintf(status, sizeof(status),
+                 "Unavailable from this GPU, driver, or Windows driver mode | Span %s | %s",
+                 span, edge);
+    }
+    truncate_text(status, status_display, sizeof(status_display), (size_t)columns);
+    text_buffer_append(buffer, "%s%s%s\n%s%s%s\n%s\n",
+                       ANSI_BOLD, title_display, ANSI_RESET,
+                       ANSI_CYAN, gpu_name, ANSI_RESET, status_display);
+
+    app->chart_plot_left = prefix_width;
+    app->chart_plot_right = prefix_width + plot_width - 1;
+    app->chart_plot_top = 3;
+    app->chart_plot_bottom = 3 + chart_height - 1;
+
+    /* Resolve the pointer's time coordinate to the nearest stored sample and
+       prepare an ASCII tooltip that can be overlaid without changing width. */
+    int hover_plot_x = -1;
+    int tooltip_row = -1;
+    int tooltip_start = -1;
+    int tooltip_length = 0;
+    char tooltip[96] = "";
+    char tooltip_display[96] = "";
+    if (app->chart_hover_active &&
+        app->chart_hover_x >= app->chart_plot_left &&
+        app->chart_hover_x <= app->chart_plot_right &&
+        app->chart_hover_y >= app->chart_plot_top &&
+        app->chart_hover_y <= app->chart_plot_bottom) {
+        hover_plot_x = app->chart_hover_x - app->chart_plot_left;
+        tooltip_row = app->chart_hover_y - app->chart_plot_top;
+        ULONGLONG target = view_start +
+            (app->chart_window_ms * (ULONGLONG)hover_plot_x) /
+            (ULONGLONG)(plot_width - 1);
+        size_t nearest = count;
+        ULONGLONG nearest_distance = ~(ULONGLONG)0;
+        if (first_visible < count && target >= chart_timestamp(app, first_visible)) {
+            for (size_t i = first_visible; i < last_visible; ++i) {
+                ULONGLONG timestamp = chart_timestamp(app, i);
+                ULONGLONG distance = timestamp > target
+                    ? timestamp - target : target - timestamp;
+                if (distance < nearest_distance) {
+                    nearest = i;
+                    nearest_distance = distance;
+                }
+            }
+        }
+        if (nearest < count) {
+            ULONGLONG age_ms = newest_time - chart_timestamp(app, nearest);
+            if (age_ms < 1000ULL) {
+                snprintf(tooltip, sizeof(tooltip), " Point %.1f%s | now ",
+                         chart_value(app, metric, nearest), unit);
+            } else {
+                char age[32];
+                format_chart_duration(age_ms, age, sizeof(age));
+                snprintf(tooltip, sizeof(tooltip), " Point %.1f%s | %s ago ",
+                         chart_value(app, metric, nearest), unit, age);
+            }
+        } else {
+            ULONGLONG age_ms = newest_time > target ? newest_time - target : 0;
+            char age[32];
+            format_chart_duration(age_ms, age, sizeof(age));
+            snprintf(tooltip, sizeof(tooltip), " No sample | %s ago ", age);
+        }
+        truncate_text(tooltip, tooltip_display, sizeof(tooltip_display), (size_t)plot_width);
+        tooltip_length = (int)strlen(tooltip_display);
+        tooltip_start = hover_plot_x + 2;
+        if (tooltip_start + tooltip_length > plot_width)
+            tooltip_start = hover_plot_x - tooltip_length - 1;
+        if (tooltip_start < 0) tooltip_start = 0;
+        if (tooltip_start + tooltip_length > plot_width)
+            tooltip_start = plot_width - tooltip_length;
+    }
+
+    const char *color = chart_color(metric);
+    /* Draw one bounded terminal row at a time. Tooltip-covered iterations
+       emit no cell because the first iteration emitted the complete overlay. */
+    for (int row = 0; row < chart_height; ++row) {
+        double upper = scale * (double)(chart_height - row) / (double)chart_height;
+        double lower = scale * (double)(chart_height - row - 1) / (double)chart_height;
+        bool labeled = row == 0 || row == chart_height - 1 || row == chart_height / 2;
+        if (labeled) text_buffer_append(buffer, "%6.1f%s|", upper, unit);
+        else text_buffer_append(buffer, "       |");
+        text_buffer_append(buffer, "%s", color);
+        for (int x = 0; x < plot_width; ++x) {
+            if (row == tooltip_row && x >= tooltip_start &&
+                x < tooltip_start + tooltip_length) {
+                if (x == tooltip_start) {
+                    text_buffer_append(buffer, "%s%s%s%s", ANSI_RESET, ANSI_REVERSE,
+                                       tooltip_display, ANSI_RESET);
+                    text_buffer_append(buffer, "%s", color);
+                }
+                continue;
+            }
+            const char *cell = (row == chart_height / 2) ? "-" : " ";
+            if (plot_present[x]) {
+                if (plot_values[x] >= upper) cell = "\xE2\x96\x88";
+                else if (plot_values[x] > lower) cell = "\xE2\x96\x84";
+            }
+            if (x == hover_plot_x) text_buffer_append(buffer, "%s", ANSI_REVERSE);
+            text_buffer_append(buffer, "%s", cell);
+            if (x == hover_plot_x) text_buffer_append(buffer, "%s%s", ANSI_RESET, color);
+        }
+        text_buffer_append(buffer, "%s\n", ANSI_RESET);
+    }
+
+    const char *controls = columns >= 112
+        ? "Wheel zoom | Shift+wheel / Left/Right pan | Home oldest | End live | Hover exact | 1-0 metric | c table | q quit"
+        : "Wheel zoom | Left/Right pan | End live | Hover exact value | c table | q quit";
     char clipped_controls[256];
     truncate_text(controls, clipped_controls, sizeof(clipped_controls), (size_t)columns);
     text_buffer_append(buffer, "%s%s%s", ANSI_DIM, clipped_controls, ANSI_RESET);
@@ -1114,6 +1497,8 @@ static void select_gpu(App *app, int delta) {
     app->history_next = 0;
     app->chart_history_count = 0;
     app->chart_history_next = 0;
+    app->chart_pan_ms = 0;
+    app->chart_hover_active = false;
     sample_app(app);
 }
 
@@ -1164,7 +1549,10 @@ static bool handle_key(App *app, int key) {
         case 'q': case 'Q': return false;
         case 'h': case 'H': app->show_help = !app->show_help; break;
         case 'i': case 'I': app->show_gpu_info = !app->show_gpu_info; break;
-        case 'c': case 'C': app->chart_view = !app->chart_view; break;
+        case 'c': case 'C':
+            app->chart_view = !app->chart_view;
+            if (!app->chart_view) app->chart_hover_active = false;
+            break;
         case 'd': case 'D': app->show_details = !app->show_details; break;
         case 'u': case 'U': set_sort(app, SORT_GPU); break;
         case 'm': case 'M': set_sort(app, SORT_DEDICATED); break;
@@ -1200,10 +1588,14 @@ static bool handle_key(App *app, int key) {
         case '+': case '=':
             if (app->interval_ms > 250) app->interval_ms -= 250;
             if (app->interval_ms < 250) app->interval_ms = 250;
+            clamp_chart_window(app);
+            clamp_chart_pan(app);
             break;
         case '-': case '_':
             if (app->interval_ms < 5000) app->interval_ms += 250;
             if (app->interval_ms > 5000) app->interval_ms = 5000;
+            clamp_chart_window(app);
+            clamp_chart_pan(app);
             break;
     }
     return true;
@@ -1212,6 +1604,29 @@ static bool handle_key(App *app, int key) {
 static bool handle_console_key(App *app, const KEY_EVENT_RECORD *event) {
     if (!event->bKeyDown) return true;
     int repeat = event->wRepeatCount > 0 ? event->wRepeatCount : 1;
+    if (app->chart_view && !app->editing_filter && !app->confirm_pid) {
+        switch (event->wVirtualKeyCode) {
+            case VK_LEFT:
+                for (int i = 0; i < repeat; ++i) pan_chart(app, 1, false);
+                return true;
+            case VK_RIGHT:
+                for (int i = 0; i < repeat; ++i) pan_chart(app, -1, false);
+                return true;
+            case VK_PRIOR:
+                for (int i = 0; i < repeat; ++i) pan_chart(app, 1, true);
+                return true;
+            case VK_NEXT:
+                for (int i = 0; i < repeat; ++i) pan_chart(app, -1, true);
+                return true;
+            case VK_HOME:
+                clamp_chart_window(app);
+                app->chart_pan_ms = chart_max_pan_ms(app);
+                return true;
+            case VK_END:
+                app->chart_pan_ms = 0;
+                return true;
+        }
+    }
     switch (event->wVirtualKeyCode) {
         case VK_UP: select_relative(app, -repeat); return true;
         case VK_DOWN: select_relative(app, repeat); return true;
@@ -1230,16 +1645,38 @@ static bool handle_console_key(App *app, const KEY_EVENT_RECORD *event) {
 }
 
 static void handle_console_mouse(App *app, const MOUSE_EVENT_RECORD *event) {
+    int x = event->dwMousePosition.X - app->viewport_left;
+    int y = event->dwMousePosition.Y - app->viewport_top;
+    bool in_chart = app->chart_view &&
+        x >= app->chart_plot_left && x <= app->chart_plot_right &&
+        y >= app->chart_plot_top && y <= app->chart_plot_bottom;
+
+    if (app->chart_view && event->dwEventFlags == MOUSE_MOVED) {
+        app->chart_hover_active = in_chart;
+        if (in_chart) {
+            app->chart_hover_x = x;
+            app->chart_hover_y = y;
+        }
+        return;
+    }
     if (event->dwEventFlags == MOUSE_WHEELED) {
         SHORT delta = (SHORT)HIWORD(event->dwButtonState);
+        if (in_chart) {
+            app->chart_hover_active = true;
+            app->chart_hover_x = x;
+            app->chart_hover_y = y;
+            if (event->dwControlKeyState & SHIFT_PRESSED)
+                pan_chart(app, delta > 0 ? 1 : -1, false);
+            else
+                zoom_chart(app, delta < 0);
+            return;
+        }
         select_relative(app, delta > 0 ? -3 : 3);
         return;
     }
     if (event->dwEventFlags != 0 ||
         !(event->dwButtonState & FROM_LEFT_1ST_BUTTON_PRESSED) || app->chart_view) return;
 
-    int x = event->dwMousePosition.X - app->viewport_left;
-    int y = event->dwMousePosition.Y - app->viewport_top;
     if (y == app->table_header_row) {
         for (size_t i = 0; i < app->header_hit_count; ++i) {
             HeaderHit *hit = &app->header_hits[i];
@@ -1415,7 +1852,8 @@ static void print_help(void) {
         "  --help             Show this help\n"
         "  --version          Show the version\n\n"
         "Run without options in Windows Terminal for the interactive UI.\n"
-        "Headers are mouse-clickable; click again to reverse the sort.\n",
+        "Headers are mouse-clickable; click again to reverse the sort.\n"
+        "Charts support wheel zoom, Shift+wheel or arrow-key panning, and exact hover values.\n",
         VGPU_VERSION);
 }
 
@@ -1435,6 +1873,11 @@ static bool initialize_app(App *app) {
 
 static void cleanup_app(App *app) {
     stop_logging(app);
+    free(app->chart_plot_present);
+    free(app->chart_plot_values);
+    app->chart_plot_present = NULL;
+    app->chart_plot_values = NULL;
+    app->chart_plot_capacity = 0;
     pdh_gpu_close(&app->pdh);
     dxgi_close(&app->dxgi);
     nvml_close(&app->nvml);
@@ -1465,6 +1908,7 @@ static int app_main(int argc, char **argv) {
     app->sort_mode = SORT_GPU;
     app->sort_descending = true;
     app->chart_metric = CHART_GPU;
+    app->chart_window_ms = VGPU_CHART_DEFAULT_WINDOW_MS;
     bool once = false;
     bool json = false;
     const char *initial_log = NULL;

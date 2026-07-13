@@ -4,6 +4,21 @@ All notable user-facing changes are documented here. This project follows [Seman
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-07-13
+
+### Added
+
+- Zoom the chart's visible time span with the mouse wheel, from a tight live view through the retained history.
+- Pan older/newer with `Shift`+wheel, arrow keys, or page keys, with `Home` for the oldest complete window and `End` for live data.
+- Show an in-chart crosshair tooltip with the nearest real sample's exact value and age.
+- Retain 14,400 timestamped samples per metric in a bounded ring and preserve historical view position while new samples arrive.
+- Add a repository-level `AGENTS.md` with architecture, testing, terminal-rendering, security, and release guidance.
+
+### Security and quality
+
+- Keep chart time calculations correct across live refresh-interval changes by recording monotonic timestamps per sample.
+- Exercise chart wheel, pan, hover, resize, and complete-frame bounds through the ConPTY integration test.
+
 ## [1.2.0] - 2026-07-13
 
 ### Added
@@ -70,7 +85,8 @@ All notable user-facing changes are documented here. This project follows [Seman
 
 - Added `/W4 /WX /sdl`, control-flow protection, ASLR/DEP/CET-compatible linker flags, reproducible Release builds, MSVC AddressSanitizer tests, CRT leak checks, static analysis, CodeQL, and pinned CI dependencies.
 
-[Unreleased]: https://github.com/xptea/VGPU-Mon/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/xptea/VGPU-Mon/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/xptea/VGPU-Mon/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/xptea/VGPU-Mon/compare/v1.1.4...v1.2.0
 [1.1.4]: https://github.com/xptea/VGPU-Mon/compare/v1.1.3...v1.1.4
 [1.1.3]: https://github.com/xptea/VGPU-Mon/compare/v1.1.2...v1.1.3
