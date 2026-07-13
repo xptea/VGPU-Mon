@@ -50,7 +50,7 @@ rc /nologo /fo build\obj\app\vgpu.res src\vgpu.rc
 if errorlevel 1 exit /b %errorlevel%
 
 cl %CFLAGS% /Fo:build\obj\app\ /Fd:build\obj\app\compiler.pdb /Fe:build\%OUTPUT_NAME%.exe ^
-  src\main.c src\util.c src\nvml_dyn.c src\dxgi_gpu.c src\pdh_gpu.c src\updater.c build\obj\app\vgpu.res ^
+  src\main.c src\util.c src\nvml_dyn.c src\dxgi_gpu.c src\d3dkmt_gpu.c src\pdh_gpu.c src\updater.c build\obj\app\vgpu.res ^
   /link %LFLAGS% pdh.lib dxgi.lib dxguid.lib psapi.lib advapi32.lib shell32.lib ole32.lib winhttp.lib bcrypt.lib
 if errorlevel 1 exit /b %errorlevel%
 

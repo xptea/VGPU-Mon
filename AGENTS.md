@@ -11,7 +11,8 @@ Important areas:
 - `src/main.c`: application state, sampling loop, terminal rendering, keyboard/mouse input, CLI output
 - `src/nvml_dyn.c`: dynamically loaded NVIDIA NVML telemetry
 - `src/dxgi_gpu.c`: DXGI adapter and memory telemetry
-- `src/pdh_gpu.c`: WDDM/PDH engine and per-process counters
+- `src/d3dkmt_gpu.c`: direct per-process video-memory queries using DXGI adapter LUIDs
+- `src/pdh_gpu.c`: WDDM/PDH engine counters, process discovery, and protected-process memory fallback
 - `src/updater.c`: signed-release metadata checks, download verification, and update handoff
 - `tests/test_core.c`: native unit and CLI behavior tests
 - `tests/test_conpty.c`: full terminal lifecycle, input, resize, and frame-bound tests
@@ -53,7 +54,7 @@ Do not commit `build/`, `dist/`, telemetry logs, installers, or machine-specific
 
 - Keep C warnings clean under `/W4 /WX /sdl` and static analysis.
 - Use four-space indentation, bounded buffers, explicit ownership, and one cleanup path per acquired resource.
-- Preserve graceful behavior when NVML, DXGI, PDH, a sensor, or an individual process query is unavailable.
+- Preserve graceful behavior when NVML, DXGI, D3DKMT, PDH, a sensor, or an individual process query is unavailable.
 - Do not add a mandatory runtime, SDK, administrator requirement, service, or driver.
 - Keep optional vendor APIs dynamically discovered and keep AMD/Intel fallback behavior intact.
 - Add or update automated tests for terminal input, resize, CLI parsing, cleanup, updater, or installer behavior changes.

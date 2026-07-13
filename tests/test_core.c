@@ -30,11 +30,13 @@ static void test_format_bytes(void) {
                                           16ULL * 1024ULL * 1024ULL * 1024ULL));
     EXPECT(dedicated_gpu_memory_plausible(UINT64_MAX, 0));
 
-    GpuProcess rows[4] = {{0}};
+    GpuProcess rows[5] = {{0}};
     rows[0].dedicated_bytes = 9ULL * 1024ULL * 1024ULL * 1024ULL;
     rows[1].dedicated_bytes = 75ULL * 1024ULL * 1024ULL * 1024ULL;
     rows[2].dedicated_bytes = 512ULL * 1024ULL * 1024ULL;
     rows[3].dedicated_bytes = 2ULL * 1024ULL * 1024ULL * 1024ULL;
+    rows[4].dedicated_bytes = 9ULL * 1024ULL * 1024ULL * 1024ULL;
+    rows[4].dedicated_memory_direct = true;
     EXPECT(invalidate_implausible_dedicated_gpu_memory(
         rows, _countof(rows), 16ULL * 1024ULL * 1024ULL * 1024ULL,
         4ULL * 1024ULL * 1024ULL * 1024ULL, true) == 2);
@@ -42,6 +44,7 @@ static void test_format_bytes(void) {
     EXPECT(rows[1].dedicated_memory_invalid && rows[1].dedicated_bytes == 0);
     EXPECT(!rows[2].dedicated_memory_invalid && rows[2].dedicated_bytes != 0);
     EXPECT(!rows[3].dedicated_memory_invalid && rows[3].dedicated_bytes != 0);
+    EXPECT(!rows[4].dedicated_memory_invalid && rows[4].dedicated_bytes != 0);
 
     GpuProcess total_only = {0};
     total_only.dedicated_bytes = 9ULL * 1024ULL * 1024ULL * 1024ULL;

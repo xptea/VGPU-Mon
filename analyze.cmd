@@ -27,7 +27,7 @@ mkdir build\obj\analyze\update
 set "ANALYZE_FLAGS=/nologo /c /std:c11 /utf-8 /W4 /WX /sdl /analyze /analyze:external- /D_DEBUG"
 
 cl %ANALYZE_FLAGS% /Fo:build\obj\analyze\app\ ^
-  src\main.c src\util.c src\nvml_dyn.c src\dxgi_gpu.c src\pdh_gpu.c src\updater.c
+  src\main.c src\util.c src\nvml_dyn.c src\dxgi_gpu.c src\d3dkmt_gpu.c src\pdh_gpu.c src\updater.c
 if errorlevel 1 exit /b 1
 
 cl %ANALYZE_FLAGS% /Fo:build\obj\analyze\core\ ^

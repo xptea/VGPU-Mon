@@ -4,19 +4,20 @@ VGPU-Mon is a native Windows application. It has no service, kernel component, i
 
 ## Data flow
 
-1. `DXGI` enumerates physical hardware adapters and provides Windows video-memory usage and budget data.
-2. `NVML` is loaded dynamically from NVIDIA’s driver locations. When present, it provides board sensors, clocks, power, physical VRAM, and driver identity.
-3. `PDH` reads Windows GPU-engine and GPU-process-memory performance counters. Instances are grouped by PID and physical adapter.
-4. The sampler normalizes those sources into one `GpuTelemetry` snapshot plus bounded process rows and chart histories.
-5. The renderer builds one bounded frame in memory and repaints the visible terminal region in a single write.
+1. `DXGI` enumerates physical hardware adapters, records their LUIDs, and provides Windows video-memory usage and budget data.
+2. `D3DKMTQueryVideoMemoryInfo` is resolved dynamically from the system `gdi32.dll`. Adapter handles are opened from the DXGI LUIDs, then current local and non-local memory usage is queried with a short-lived process handle for each visible PID.
+3. `NVML` is loaded dynamically from NVIDIA’s driver locations. When present, it provides board sensors, clocks, power, physical VRAM, and driver identity.
+4. `PDH` reads Windows GPU-engine counters, discovers active GPU PIDs, and supplies a guarded memory fallback only when the direct process query is unavailable. Instances are grouped by PID and physical adapter.
+5. The sampler normalizes those sources into one `GpuTelemetry` snapshot plus bounded process rows and chart histories. Each process memory field retains its provider provenance.
+6. The renderer builds one bounded frame in memory and repaints the visible terminal region in a single write.
 
 The updater reads `version.txt` from the latest stable GitHub Release, validates its strict version, installer, and hash fields, and compares semantic versions. It downloads an exact tag-specific installer to the user temporary directory and hashes it with Windows CNG before starting a transient installer helper. The helper has no inherited console handles and never relaunches a second foreground process after the invoking shell regains input ownership. Offline, malformed, oversized, downgraded, or hash-mismatched responses fail closed for the update and fail open for monitoring. Non-interactive output paths do not access the network.
 
-`--demo` replaces steps 1–3 with deterministic values while keeping the real sampling, layout, JSON, input, and rendering paths. It exists for testing and UI previews; it is never presented as hardware telemetry.
+`--demo` replaces the hardware-provider steps with deterministic values while keeping the real sampling, layout, JSON, input, and rendering paths. It exists for testing and UI previews; it is never presented as hardware telemetry.
 
 ## Ownership and cleanup
 
-Each provider owns its query/library/COM handles and exposes an idempotent close function. Application cleanup calls all close functions even after partial initialization. Dynamic arrays, command-line conversion buffers, terminal buffers, process handles, tokens, pseudo-console resources, and test capture buffers have explicit paired cleanup.
+Each provider owns its query/library/COM handles and exposes an idempotent close function. D3DKMT adapter handles live for the provider lifetime; per-process handles are closed immediately after the two memory-group queries. Application cleanup calls all close functions even after partial initialization. Dynamic arrays, command-line conversion buffers, terminal buffers, process handles, tokens, pseudo-console resources, and test capture buffers have explicit paired cleanup.
 
 Updater HTTP, file, registry, hashing, and child-process handles are closed on every path. Partial downloads and helper scripts are deleted after failure or handoff. The updater runs before GPU providers open, so no telemetry handles are inherited by the installer helper.
 
@@ -28,7 +29,7 @@ The interactive UI uses Windows console input records and VT output. Every updat
 
 ## Accounting caveats
 
-NVML physical allocation, DXGI OS budget/usage, and WDDM per-process commitments describe different layers and do not necessarily sum. Microsoft documents that GPU Process Memory can accumulate stale allocations. VGPU-Mon rejects only an individually impossible dedicated row and preserves other process values. The upper bound is physical VRAM, tightened on NVIDIA hardware to current NVML board allocation plus bounded sampling slack.
+D3DKMT process usage, NVML physical allocation, DXGI OS budget/usage, and WDDM fallback commitments describe different layers and do not necessarily sum. The direct D3DKMT result is bounded by physical VRAM. Microsoft documents that GPU Process Memory counters can accumulate stale allocations, so a PDH fallback row is additionally bounded by current NVML board allocation plus sampling slack. Rejection is per row and never contaminates direct results.
 
 The displayed per-process GPU percentage is the busiest engine for that process, matching the accounting style used by Windows Task Manager. It is not additive across dissimilar engines.
 

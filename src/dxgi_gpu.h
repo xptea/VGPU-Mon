@@ -8,6 +8,7 @@ typedef struct {
     void *adapters[VGPU_MAX_GPUS];
     unsigned int count;
     char names[VGPU_MAX_GPUS][128];
+    LUID adapter_luids[VGPU_MAX_GPUS];
     uint64_t dedicated_memory[VGPU_MAX_GPUS];
     unsigned int vendor_ids[VGPU_MAX_GPUS];
     char error[256];

@@ -4,7 +4,7 @@
 [![CodeQL](https://github.com/xptea/VGPU-Mon/actions/workflows/codeql.yml/badge.svg)](https://github.com/xptea/VGPU-Mon/actions/workflows/codeql.yml)
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-VGPU-Mon is a native Windows GPU task manager written in C. It combines Windows WDDM performance counters with DXGI and NVIDIA NVML to show board telemetry and the processes consuming each GPU.
+VGPU-Mon is a native Windows GPU task manager written in C. It combines direct Windows per-process video-memory queries, WDDM engine counters, DXGI, and NVIDIA NVML to show board telemetry and the processes consuming each GPU.
 
 It is a real full-screen terminal application, not a wrapper around `nvidia-smi`. NVML is loaded dynamically, so the same executable still runs on AMD and Intel systems with the vendor-neutral data that Windows exposes.
 
@@ -12,7 +12,7 @@ It is a real full-screen terminal application, not a wrapper around `nvidia-smi`
 
 - Live GPU and physical VRAM utilization with driver-reserved memory separated
 - Full-screen timestamped charts with time-span zoom, history panning, and exact hover values
-- WDDM dedicated/shared GPU-memory commitments per process
+- Direct per-process dedicated/shared GPU-memory usage, with a validated WDDM fallback for protected processes
 - Per-process 3D, compute, copy, encode, and decode engine activity
 - Temperature, board power, power limit, fan, P-state, and clocks through NVML
 - Encoder, decoder, and PCIe link/throughput telemetry when the driver exposes it
@@ -30,7 +30,7 @@ It is a real full-screen terminal application, not a wrapper around `nvidia-smi`
 ## Runtime requirements and compatibility
 
 - 64-bit Windows 10 version 1809 or newer, or Windows 11
-- A WDDM 2.x display driver for per-process and per-engine Windows counters
+- A WDDM 2.x display driver for direct per-process memory queries and per-engine Windows counters
 - Windows Terminal is recommended for the interactive interface
 - A current NVIDIA display driver for temperature, power, clocks, fan, encoder/decoder, and NVML memory accounting
 
@@ -207,13 +207,16 @@ Options:
 
 ## Data sources and accounting
 
-- **Windows GPU performance counters** provide per-process engine utilization and dedicated/shared memory commitments. The displayed process percentage is that process's busiest engine, which follows Windows Task Manager's accounting model.
-- **DXGI 1.4** enumerates hardware adapters and reports local video-memory usage and the current OS memory budget.
+- **D3DKMT video-memory queries** provide current local and non-local usage for each accessible process on the selected adapter. VGPU-Mon resolves the documented Windows entry points dynamically and opens adapters using their DXGI LUIDs.
+- **Windows GPU performance counters** discover active GPU processes, provide per-process engine utilization, and supply a guarded memory fallback when Windows does not allow the process handle needed by the direct API. The displayed process percentage is that process's busiest engine, which follows Windows Task Manager's accounting model.
+- **DXGI 1.4** enumerates hardware adapters, supplies the LUID used by the direct memory provider, and reports local video-memory usage and the current OS memory budget.
 - **NVML** supplies NVIDIA board telemetry. VGPU-Mon uses the versioned memory API to separate driver/firmware-reserved VRAM from application allocation. `nvml.dll` is discovered and loaded at runtime; the project does not ship NVIDIA libraries.
 
-VRAM figures from NVML, DXGI, and WDDM can differ because they describe different accounting layers. Per-process WDDM values include memory shared across processes, so adding every row can exceed the physical total even though a valid individual dedicated-memory reading cannot. VGPU-Mon marks process columns with `*`, labels JSON/CSV fields as commitments, and keeps the physical total and OS budget separate.
+VRAM figures from D3DKMT, NVML, DXGI, and WDDM can differ because they describe different accounting layers. Shared allocations may be attributed to more than one process, so adding every row is not a physical-board total. VGPU-Mon marks process columns with `*` and keeps the physical total and OS budget separate.
 
-Windows also has a documented GPU Process Memory counter issue that accumulates stale allocations and can produce implausibly large per-process values. VGPU-Mon marks only an individually impossible row as `N/A !`, writes a blank CSV field or JSON `null` for that row, and raises `wddm_process_memory_warning`. Valid process rows remain visible. On NVIDIA cards, a row is also rejected when it exceeds current board allocation by more than bounded sampling slack, which catches stale values such as a 9 GiB process on a board using about 4 GiB. Physical board usage at the top remains sourced from NVML/DXGI.
+Windows' GPU Process Memory performance counter can accumulate stale allocations and produce implausibly large values. Those counters are no longer the primary memory source. If a protected process requires the fallback, VGPU-Mon validates only that row, marks a rejected value as `N/A !`, writes a blank CSV field or JSON `null`, and raises `wddm_process_memory_warning` without hiding valid rows. Physical board usage at the top remains sourced from NVML/DXGI.
+
+JSON reports `dedicated_memory_source` and `shared_memory_source` as `d3dkmt`, `pdh`, `demo`, or `unavailable`. The generic `dedicated_memory_bytes` and `shared_memory_bytes` fields are authoritative. The older JSON aliases and CSV column names ending in `_commit_bytes` remain for compatibility; their source columns identify whether the value came from the direct API or the guarded fallback.
 
 Terminating a process is not the same as resetting a GPU. VGPU-Mon deliberately does not expose driver resets or unsafe attempts to cancel individual command queues.
 
@@ -233,6 +236,7 @@ VGPU-Mon is released under the [MIT License](LICENSE).
 ## Technical references
 
 - [NVIDIA NVML API reference](https://docs.nvidia.com/deploy/nvml-api/nvml-api-reference.html)
+- [D3DKMTQueryVideoMemoryInfo](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/d3dkmthk/nf-d3dkmthk-d3dkmtqueryvideomemoryinfo)
 - [Microsoft console input modes](https://learn.microsoft.com/en-us/windows/console/low-level-console-modes)
 - [Microsoft GPU Process Memory counter known issue](https://learn.microsoft.com/en-us/troubleshoot/windows-client/performance/gpu-process-memory-counters-report-wrong-value)
 - [GPU virtual memory in WDDM 2.0](https://learn.microsoft.com/en-us/windows-hardware/drivers/display/gpu-virtual-memory-in-wddm-2-0)

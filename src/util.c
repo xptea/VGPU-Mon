@@ -109,7 +109,12 @@ size_t invalidate_implausible_dedicated_gpu_memory(
 
     size_t invalid_count = 0;
     for (size_t i = 0; i < count; ++i) {
-        if (processes[i].dedicated_bytes > ceiling) {
+        uint64_t row_ceiling = physical_total;
+        if (!processes[i].dedicated_memory_direct && ceiling &&
+            (row_ceiling == 0 || ceiling < row_ceiling)) {
+            row_ceiling = ceiling;
+        }
+        if (row_ceiling && processes[i].dedicated_bytes > row_ceiling) {
             processes[i].dedicated_memory_invalid = true;
             processes[i].dedicated_bytes = 0;
             invalid_count++;
