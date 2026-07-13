@@ -130,17 +130,19 @@ begin
   else Log('ERROR: Could not add VGPU-Mon to the user PATH.');
 end;
 
-function RemovePathEntry(const Entry: String): Boolean;
+function RemovePathEntry(const Entry: String;
+  PreserveTrailingSeparator: Boolean): Boolean;
 var
   PathValue, Remaining, Token, NewValue: String;
   Separator: Integer;
-  HaveToken: Boolean;
+  HaveToken, RemovedEntry: Boolean;
 begin
   Result := True;
   if not RegQueryStringValue(HKCU, EnvironmentKey, 'Path', PathValue) then Exit;
   Remaining := PathValue;
   NewValue := '';
   HaveToken := False;
+  RemovedEntry := False;
   while True do
   begin
     Separator := Pos(';', Remaining);
@@ -160,8 +162,13 @@ begin
       NewValue := NewValue + Token;
       HaveToken := True;
     end;
+    if NormalizePathToken(Token) = NormalizePathToken(Entry) then
+      RemovedEntry := True;
     if Separator = 0 then Break;
   end;
+  if RemovedEntry and PreserveTrailingSeparator and
+     (NewValue <> '') and (NewValue[Length(NewValue)] <> ';') then
+    NewValue := NewValue + ';';
   if NewValue <> PathValue then
   begin
     Result := RegWriteExpandStringValue(HKCU, EnvironmentKey, 'Path', NewValue);
@@ -173,17 +180,23 @@ end;
 procedure ConfigurePath;
 var
   CurrentEntry, PreviousEntry, UserPath: String;
-  Owned: Cardinal;
+  Owned, TrailingSeparator: Cardinal;
 begin
   CurrentEntry := ExpandConstant('{app}');
   PreviousEntry := '';
   Owned := 0;
+  TrailingSeparator := 0;
   RegQueryStringValue(HKCU, StateKey, 'PathEntry', PreviousEntry);
   RegQueryDWordValue(HKCU, StateKey, 'PathAdded', Owned);
+  RegQueryDWordValue(HKCU, StateKey, 'PathTrailingSeparator', TrailingSeparator);
 
   if (Owned = 1) and (PreviousEntry <> '') and
      (NormalizePathToken(PreviousEntry) <> NormalizePathToken(CurrentEntry)) then
-    RemovePathEntry(PreviousEntry);
+  begin
+    RemovePathEntry(PreviousEntry, TrailingSeparator = 1);
+    Owned := 0;
+    TrailingSeparator := 0;
+  end;
 
   if WizardIsTaskSelected('addtopath') then
   begin
@@ -191,21 +204,32 @@ begin
     RegQueryStringValue(HKCU, EnvironmentKey, 'Path', UserPath);
     if not PathContains(UserPath, CurrentEntry) then
     begin
-      if AddPathEntry(CurrentEntry) then Owned := 1;
+      if (UserPath <> '') and (UserPath[Length(UserPath)] = ';') then
+        TrailingSeparator := 1
+      else
+        TrailingSeparator := 0;
+      if AddPathEntry(CurrentEntry) then
+        Owned := 1
+      else
+        TrailingSeparator := 0;
     end;
   end
   else
   begin
     if Owned = 1 then
     begin
-      if PreviousEntry <> '' then RemovePathEntry(PreviousEntry)
-      else RemovePathEntry(CurrentEntry);
+      if PreviousEntry <> '' then
+        RemovePathEntry(PreviousEntry, TrailingSeparator = 1)
+      else
+        RemovePathEntry(CurrentEntry, TrailingSeparator = 1);
     end;
     Owned := 0;
+    TrailingSeparator := 0;
   end;
 
   RegWriteStringValue(HKCU, StateKey, 'PathEntry', CurrentEntry);
   RegWriteDWordValue(HKCU, StateKey, 'PathAdded', Owned);
+  RegWriteDWordValue(HKCU, StateKey, 'PathTrailingSeparator', TrailingSeparator);
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
@@ -216,17 +240,20 @@ end;
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
   Entry: String;
-  Owned: Cardinal;
+  Owned, TrailingSeparator: Cardinal;
 begin
   if CurUninstallStep = usUninstall then
   begin
     Entry := ExpandConstant('{app}');
     Owned := 0;
+    TrailingSeparator := 0;
     RegQueryStringValue(HKCU, StateKey, 'PathEntry', Entry);
     RegQueryDWordValue(HKCU, StateKey, 'PathAdded', Owned);
-    if Owned = 1 then RemovePathEntry(Entry);
+    RegQueryDWordValue(HKCU, StateKey, 'PathTrailingSeparator', TrailingSeparator);
+    if Owned = 1 then RemovePathEntry(Entry, TrailingSeparator = 1);
     RegDeleteValue(HKCU, StateKey, 'PathEntry');
     RegDeleteValue(HKCU, StateKey, 'PathAdded');
+    RegDeleteValue(HKCU, StateKey, 'PathTrailingSeparator');
     RegDeleteKeyIfEmpty(HKCU, StateKey);
   end;
 end;

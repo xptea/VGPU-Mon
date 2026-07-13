@@ -20,6 +20,7 @@ All notable user-facing changes are documented here. This project follows [Seman
 - Prevent visible frame flashing and vertical bounce during periodic refresh.
 - Release partially initialized WDDM/PDH providers and close every provider on all shutdown paths.
 - Detect CSV write failures and reject malformed numeric command-line options.
+- Preserve a pre-existing trailing user-PATH separator across uninstall.
 
 ### Security and quality
 
