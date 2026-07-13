@@ -48,7 +48,7 @@ Some protected processes cannot be inspected or terminated without elevation. VG
 Open PowerShell or Windows Terminal and paste this one command:
 
 ```powershell
-curl.exe -fsSL https://raw.githubusercontent.com/xptea/VGPU-Mon/main/install.ps1 | powershell.exe -NoProfile -ExecutionPolicy Bypass -Command -
+curl.exe -fsSL https://raw.githubusercontent.com/xptea/VGPU-Mon/main/install.ps1 | Out-String | Invoke-Expression
 ```
 
 The bootstrap script finds the latest stable [GitHub Release](https://github.com/xptea/VGPU-Mon/releases), downloads its per-user installer and `SHA256SUMS.txt`, verifies the installer SHA-256, and only then runs it silently. It does not require administrator access. Open a new terminal tab after installation, then run:

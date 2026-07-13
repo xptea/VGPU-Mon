@@ -4,6 +4,14 @@ All notable user-facing changes are documented here. This project follows [Seman
 
 ## [Unreleased]
 
+## [1.1.4] - 2026-07-13
+
+### Fixed
+
+- Execute the curl bootstrap through PowerShell's text pipeline instead of an unreliable native-to-native stdin pipe.
+- Allow the optional version selector to remain omitted when the downloaded script text is evaluated directly.
+- Exercise the README's downloaded-text execution behavior in the installer lifecycle test.
+
 ## [1.1.3] - 2026-07-13
 
 ### Added
@@ -47,7 +55,8 @@ All notable user-facing changes are documented here. This project follows [Seman
 
 - Added `/W4 /WX /sdl`, control-flow protection, ASLR/DEP/CET-compatible linker flags, reproducible Release builds, MSVC AddressSanitizer tests, CRT leak checks, static analysis, CodeQL, and pinned CI dependencies.
 
-[Unreleased]: https://github.com/xptea/VGPU-Mon/compare/v1.1.3...HEAD
+[Unreleased]: https://github.com/xptea/VGPU-Mon/compare/v1.1.4...HEAD
+[1.1.4]: https://github.com/xptea/VGPU-Mon/compare/v1.1.3...v1.1.4
 [1.1.3]: https://github.com/xptea/VGPU-Mon/compare/v1.1.2...v1.1.3
 [1.1.2]: https://github.com/xptea/VGPU-Mon/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/xptea/VGPU-Mon/releases/tag/v1.1.1

@@ -122,12 +122,18 @@ if (Test-Path -LiteralPath 'HKCU:\Software\VGPU-Mon') {
 $checksumPath = Join-Path ([IO.Path]::GetTempPath()) "vgpu-mon-checksums-$([Guid]::NewGuid().ToString('N')).txt"
 $bootstrapInstalled = $false
 try {
+    # The README executes the downloaded text in the current PowerShell
+    # process. Compile the source text into a script block here so CI covers
+    # the same parameter-binding and execution behavior without using the
+    # network or installing a previously published release.
+    $bootstrapSource = Get-Content -LiteralPath (Join-Path $root 'install.ps1') -Raw
+    $bootstrapScript = [scriptblock]::Create($bootstrapSource)
     $installerHash = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash.ToLowerInvariant()
     "$('0' * 64)  $(Split-Path -Leaf $installer)" |
         Set-Content -LiteralPath $checksumPath -Encoding ascii
     $rejectedBadChecksum = $false
     try {
-        & (Join-Path $root 'install.ps1') -InstallerPath $installer -ChecksumPath $checksumPath
+        & $bootstrapScript -InstallerPath $installer -ChecksumPath $checksumPath
     }
     catch {
         if ($_.Exception.Message -like 'SHA-256 verification failed*') {
@@ -147,7 +153,7 @@ try {
     "$installerHash  $(Split-Path -Leaf $installer)" |
         Set-Content -LiteralPath $checksumPath -Encoding ascii
 
-    & (Join-Path $root 'install.ps1') -InstallerPath $installer -ChecksumPath $checksumPath
+    & $bootstrapScript -InstallerPath $installer -ChecksumPath $checksumPath
     $bootstrapInstalled = $true
     if (-not (Test-Path -LiteralPath $installedExe)) {
         throw 'Bootstrap installer did not create vgpu.exe.'
