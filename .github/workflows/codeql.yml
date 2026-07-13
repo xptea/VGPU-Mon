@@ -32,12 +32,11 @@ jobs:
         uses: github/codeql-action/init@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4.37.0
         with:
           languages: c-cpp
-          build-mode: manual
+          build-mode: autobuild
           queries: security-and-quality
 
-      - name: Build Release for CodeQL
-        shell: pwsh
-        run: .\build.ps1 -Configuration Release
+      - name: Autobuild under CodeQL tracing
+        uses: github/codeql-action/autobuild@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4.37.0
 
       - name: Analyze
         uses: github/codeql-action/analyze@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4.37.0
