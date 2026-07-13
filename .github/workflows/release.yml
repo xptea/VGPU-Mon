@@ -1,0 +1,78 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*.*.*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and publish Windows release
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Check out source
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+
+      - name: Verify tag matches source version
+        if: github.event_name == 'push'
+        run: |
+          $header = Get-Content .\src\version.h -Raw
+          $match = [regex]::Match($header, '#define\s+VGPU_VERSION\s+"([0-9]+\.[0-9]+\.[0-9]+)"')
+          if (-not $match.Success) { throw 'Could not read VGPU_VERSION.' }
+          if ($env:GITHUB_REF_NAME -ne "v$($match.Groups[1].Value)") {
+            throw "Tag $env:GITHUB_REF_NAME does not match source version $($match.Groups[1].Value)."
+          }
+
+      - name: Build, test, and analyze
+        run: |
+          .\build.ps1 -Configuration Release -Test
+          .\tools\verify-pe.ps1
+          .\analyze.ps1
+
+      - name: Build and test with AddressSanitizer
+        run: .\build.ps1 -Configuration Sanitize -Test -OutputName vgpu-mon-asan
+
+      - name: Restore Release and build packages
+        run: |
+          .\build.ps1 -Configuration Release -Test
+          .\tools\verify-pe.ps1
+          .\package.ps1 -SkipBuild
+          .\tools\install-inno.ps1
+          .\installer.ps1 -SkipBuild
+          .\tests\test_installer.ps1 -InstallerPath (Get-ChildItem .\dist\VGPU-Mon-*-setup.exe -File).FullName
+
+      - name: Write SHA-256 checksums
+        run: |
+          $assets = Get-ChildItem .\dist\VGPU-Mon-*.zip, .\dist\VGPU-Mon-*-setup.exe -File | Sort-Object Name
+          $lines = foreach ($asset in $assets) {
+            $hash = (Get-FileHash $asset.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $($asset.Name)"
+          }
+          $lines | Set-Content .\dist\SHA256SUMS.txt -Encoding ascii
+
+      - name: Upload verified release assets
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.0
+        with:
+          name: VGPU-Mon-${{ github.ref_name }}
+          path: |
+            dist/*.zip
+            dist/*-setup.exe
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+
+      - name: Publish GitHub release
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $zip = (Get-ChildItem .\dist\VGPU-Mon-*.zip -File).FullName
+          $setup = (Get-ChildItem .\dist\VGPU-Mon-*-setup.exe -File).FullName
+          gh release create $env:GITHUB_REF_NAME $zip $setup .\dist\SHA256SUMS.txt `
+            --verify-tag --generate-notes --title "VGPU-Mon $env:GITHUB_REF_NAME"

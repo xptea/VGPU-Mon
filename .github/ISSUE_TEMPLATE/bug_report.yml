@@ -1,0 +1,74 @@
+name: Bug report
+description: Report a reproducible defect or hardware compatibility problem.
+title: '[Bug] '
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        Thanks for the report. Remove private process names, paths, GPU UUIDs,
+        and telemetry before submitting. Security issues must use private reporting.
+  - type: input
+    id: version
+    attributes:
+      label: VGPU-Mon version
+      description: Paste the output of `vgpu --version`.
+      placeholder: VGPU-Mon 1.1.1
+    validations:
+      required: true
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version
+      placeholder: Windows 11 24H2, build 26100.x
+    validations:
+      required: true
+  - type: input
+    id: gpu
+    attributes:
+      label: GPU and driver
+      placeholder: NVIDIA GeForce RTX 5080, driver 610.74
+    validations:
+      required: true
+  - type: input
+    id: terminal
+    attributes:
+      label: Terminal
+      placeholder: Windows Terminal 1.x / PowerShell 7.x
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction steps
+      description: Include the exact command, terminal size, and whether `vgpu --demo` reproduces the problem.
+      placeholder: |
+        1. Run `vgpu ...`
+        2. Resize to ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior and safe logs
+      description: Attach a screenshot or redacted output if useful.
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I searched existing issues.
+          required: true
+        - label: I removed sensitive process names, paths, UUIDs, and telemetry.
+          required: true
+        - label: This is not a security vulnerability.
+          required: true

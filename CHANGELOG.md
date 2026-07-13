@@ -1,0 +1,29 @@
+# Changelog
+
+All notable user-facing changes are documented here. This project follows [Semantic Versioning](https://semver.org/).
+
+## [Unreleased]
+
+## [1.1.1] - 2026-07-13
+
+### Added
+
+- Full-screen charts for GPU, VRAM, WDDM engines, temperature, power, and memory-controller activity.
+- Mouse-clickable sortable headers and mouse-wheel process navigation.
+- JSON snapshots, CSV logging, multiple-GPU switching, and process details.
+- Deterministic `--demo` mode for previews and GPU-independent automated tests.
+- Per-user Windows installer that installs the `vgpu` command and safely restores PATH on uninstall.
+
+### Fixed
+
+- Repaint the complete terminal frame after resize without leaving stale columns or duplicate headers.
+- Prevent visible frame flashing and vertical bounce during periodic refresh.
+- Release partially initialized WDDM/PDH providers and close every provider on all shutdown paths.
+- Detect CSV write failures and reject malformed numeric command-line options.
+
+### Security and quality
+
+- Added `/W4 /WX /sdl`, control-flow protection, ASLR/DEP/CET-compatible linker flags, reproducible Release builds, MSVC AddressSanitizer tests, CRT leak checks, static analysis, CodeQL, and pinned CI dependencies.
+
+[Unreleased]: https://github.com/xptea/VGPU-Mon/compare/v1.1.1...HEAD
+[1.1.1]: https://github.com/xptea/VGPU-Mon/releases/tag/v1.1.1
