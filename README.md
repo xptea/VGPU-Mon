@@ -45,7 +45,13 @@ Some protected processes cannot be inspected or terminated without elevation. VG
 
 ## Install
 
-Download the installer or portable ZIP from [GitHub Releases](https://github.com/xptea/VGPU-Mon/releases). Run `VGPU-Mon-<version>-setup.exe` for a per-user installation. The installer adds the application directory to your user PATH, so a new terminal tab can run:
+Open PowerShell or Windows Terminal and paste this one command:
+
+```powershell
+curl.exe -fsSL https://raw.githubusercontent.com/xptea/VGPU-Mon/main/install.ps1 | powershell.exe -NoProfile -ExecutionPolicy Bypass -Command -
+```
+
+The bootstrap script finds the latest stable [GitHub Release](https://github.com/xptea/VGPU-Mon/releases), downloads its per-user installer and `SHA256SUMS.txt`, verifies the installer SHA-256, and only then runs it silently. It does not require administrator access. Open a new terminal tab after installation, then run:
 
 ```powershell
 vgpu
@@ -54,9 +60,9 @@ vgpu --chart 3d
 vgpu --json
 ```
 
-No administrator prompt is required. Existing terminal processes keep their old environment, so open a new tab after installation. Uninstalling VGPU-Mon removes the PATH entry only when the installer originally added it.
+Existing terminal processes keep their old environment. Uninstalling VGPU-Mon from Windows Settings removes the PATH entry only when the installer originally added it.
 
-Release assets include `SHA256SUMS.txt`. Windows SmartScreen may warn about community-built releases until the project has a trusted code-signing certificate; always verify the download came from this repository.
+Prefer to inspect scripts before running them? [Read `install.ps1`](install.ps1), or download the versioned installer/portable ZIP manually from Releases. Release assets include `SHA256SUMS.txt`. Windows SmartScreen may warn about community-built releases until the project has a trusted code-signing certificate; always verify the download came from this repository.
 
 ## Build and run
 

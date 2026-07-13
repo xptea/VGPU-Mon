@@ -57,6 +57,9 @@ jobs:
           .\tests\test_installer.ps1
           -InstallerPath (Get-ChildItem .\dist\VGPU-Mon-*-setup.exe -File).FullName
 
+      - name: Stage bootstrap installer
+        run: Copy-Item .\install.ps1 .\dist\install.ps1
+
       - name: Upload release candidates
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -64,5 +67,6 @@ jobs:
           path: |
             dist/*.zip
             dist/*-setup.exe
+            dist/install.ps1
           if-no-files-found: error
           retention-days: 14

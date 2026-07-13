@@ -4,6 +4,18 @@ All notable user-facing changes are documented here. This project follows [Seman
 
 ## [Unreleased]
 
+## [1.1.3] - 2026-07-13
+
+### Added
+
+- Add a one-line `curl.exe` installation command for PowerShell and Windows Terminal.
+- Resolve the latest stable GitHub Release automatically and install `vgpu` for the current user.
+
+### Security and quality
+
+- Verify the downloaded setup executable against the release's `SHA256SUMS.txt` before execution.
+- Exercise the bootstrap install, PATH command, and exact uninstall restoration in CI.
+
 ## [1.1.2] - 2026-07-13
 
 ### Security and quality
@@ -35,6 +47,7 @@ All notable user-facing changes are documented here. This project follows [Seman
 
 - Added `/W4 /WX /sdl`, control-flow protection, ASLR/DEP/CET-compatible linker flags, reproducible Release builds, MSVC AddressSanitizer tests, CRT leak checks, static analysis, CodeQL, and pinned CI dependencies.
 
-[Unreleased]: https://github.com/xptea/VGPU-Mon/compare/v1.1.2...HEAD
+[Unreleased]: https://github.com/xptea/VGPU-Mon/compare/v1.1.3...HEAD
+[1.1.3]: https://github.com/xptea/VGPU-Mon/compare/v1.1.2...v1.1.3
 [1.1.2]: https://github.com/xptea/VGPU-Mon/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/xptea/VGPU-Mon/releases/tag/v1.1.1
