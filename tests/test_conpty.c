@@ -239,8 +239,8 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    /* Exercise chart switching, mouse sorting, and both shrink and grow paths
-       before requesting the application's normal quit path. */
+    /* Exercise chart switching, mouse sorting, chart zoom/hover input, and
+       both shrink and grow paths before requesting the normal quit path. */
     Sleep(700);
     DWORD written = 0;
     WriteFile(input_write, "c", 1, &written, NULL);
@@ -248,12 +248,23 @@ int main(int argc, char **argv) {
     const char mouse_click[] = "\x1b[<0;72;11M\x1b[<0;72;11m";
     WriteFile(input_write, mouse_click, (DWORD)(sizeof(mouse_click) - 1), &written, NULL);
     Sleep(300);
+    WriteFile(input_write, "c", 1, &written, NULL);
+    Sleep(300);
     COORD small = {60, 12};
     HRESULT resize_small = ResizePseudoConsole(pseudo_console, small);
     Sleep(500);
     COORD large = {120, 30};
     HRESULT resize_large = ResizePseudoConsole(pseudo_console, large);
     Sleep(500);
+    const char chart_wheel[] = "\x1b[<65;90;15M";
+    WriteFile(input_write, chart_wheel, (DWORD)(sizeof(chart_wheel) - 1), &written, NULL);
+    Sleep(300);
+    const char chart_pan[] = "\x1b[<68;90;15M";
+    WriteFile(input_write, chart_pan, (DWORD)(sizeof(chart_pan) - 1), &written, NULL);
+    Sleep(300);
+    const char chart_hover[] = "\x1b[<35;119;14M";
+    WriteFile(input_write, chart_hover, (DWORD)(sizeof(chart_hover) - 1), &written, NULL);
+    Sleep(400);
     WriteFile(input_write, "q", 1, &written, NULL);
 
     DWORD wait = WaitForSingleObject(process.hProcess, 5000);
@@ -285,18 +296,21 @@ int main(int argc, char **argv) {
     bool left_alternate = strstr(capture.data, "\x1b[?1049l") != NULL;
     bool rendered_chart = strstr(capture.data, "Allocated VRAM") != NULL;
     bool clicked_sort = strstr(capture.data, "GPU ^") != NULL;
+    bool zoomed_chart = strstr(capture.data, "Span 2m00s") != NULL;
+    bool rendered_hover = strstr(capture.data, "Point ") != NULL;
     bool no_debug_leaks = strstr(capture.data, "Detected memory leaks!") == NULL;
     bool passed = SUCCEEDED(resize_small) && SUCCEEDED(resize_large) && wait == WAIT_OBJECT_0 &&
                   exit_code == 0 && clears >= 1 && line_erases >= 20 && max_frame_lines <= 29 &&
                   max_frame_columns <= 120 &&
                   entered_alternate && left_alternate && rendered_chart && clicked_sort &&
-                  no_debug_leaks && !capture.overflow;
+                  zoomed_chart && rendered_hover && no_debug_leaks && !capture.overflow;
     if (!passed) {
         fprintf(stderr,
-                "ConPTY test failed: exit=%lu wait=%lu clears=%zu line-erases=%zu max-frame-newlines=%zu max-frame-columns=%zu enter=%d leave=%d chart=%d mouse-sort=%d no-leaks=%d overflow=%d resize=0x%08lx/0x%08lx bytes=%zu\n",
+                "ConPTY test failed: exit=%lu wait=%lu clears=%zu line-erases=%zu max-frame-newlines=%zu max-frame-columns=%zu enter=%d leave=%d chart=%d mouse-sort=%d zoom=%d hover=%d no-leaks=%d overflow=%d resize=0x%08lx/0x%08lx bytes=%zu\n",
                 (unsigned long)exit_code, (unsigned long)wait, clears, line_erases,
                 max_frame_lines, max_frame_columns,
-                entered_alternate, left_alternate, rendered_chart, clicked_sort, no_debug_leaks, capture.overflow,
+                entered_alternate, left_alternate, rendered_chart, clicked_sort,
+                zoomed_chart, rendered_hover, no_debug_leaks, capture.overflow,
                 (unsigned long)resize_small, (unsigned long)resize_large, capture.length);
         fputs("--- captured pseudoconsole output ---\n", stderr);
         fwrite(capture.data, 1, capture.length, stderr);

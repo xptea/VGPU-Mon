@@ -11,13 +11,13 @@ It is a real full-screen terminal application, not a wrapper around `nvidia-smi`
 ## Features
 
 - Live GPU and physical VRAM utilization with driver-reserved memory separated
-- Full-screen scrolling charts for GPU, VRAM, engine, temperature, and power metrics
+- Full-screen timestamped charts with time-span zoom, history panning, and exact hover values
 - WDDM dedicated/shared GPU-memory commitments per process
 - Per-process 3D, compute, copy, encode, and decode engine activity
 - Temperature, board power, power limit, fan, P-state, and clocks through NVML
 - Encoder, decoder, and PCIe link/throughput telemetry when the driver exposes it
 - Multiple-GPU switching
-- Mouse-clickable sort headers and process rows, plus mouse-wheel navigation
+- Mouse-clickable sort headers and process rows, plus context-aware wheel navigation
 - Responsive layouts with bounded full-frame repainting after every terminal resize
 - Interactive sorting, process-name filtering, and process details
 - Confirmed process termination with protection for system and self PIDs
@@ -125,7 +125,12 @@ winget install --id JRSoftware.InnoSetup --exact --scope user
 | `p`, `n`, `e` | Sort by PID, name, or engine |
 | `o` | Reverse the current sort |
 | Mouse click | Sort a header or select a process row |
-| Mouse wheel | Move through process rows |
+| Mouse wheel | Move through process rows; zoom the time span over a chart |
+| `Shift` + mouse wheel | Pan backward or forward through chart history |
+| `Left` / `Right` | Pan a chart by one-quarter of its visible span |
+| `PgUp` / `PgDn` | Pan a chart by one full visible span |
+| `Home` / `End` | Jump to the oldest complete chart window or return live |
+| Mouse hover | Show the exact chart value and how long ago it was sampled |
 | `f` | Edit the process-name filter |
 | `d` | Toggle details for the selected process |
 | `i` | Toggle the full GPU information panel |
@@ -176,6 +181,10 @@ Demo values are clearly labeled and must not be treated as machine telemetry.
 ```
 
 The flag form requested by the UI is also supported, such as `--chart --vram`, `--chart --3d`, or simply `--vram`. In chart view, number keys switch metrics without restarting and `c` returns to the process table.
+
+Charts open on a one-minute live window. Scroll the mouse wheel over the plot to zoom from a tighter view to the full retained range. Use `Shift`+wheel, `Left`/`Right`, or `PgUp`/`PgDn` to inspect older samples; `End` snaps back to live data. Hovering anywhere on the plot draws a crosshair and an in-chart tooltip with the nearest real sample's value and age.
+
+VGPU-Mon retains 14,400 timestamped samples per metric in a fixed-size ring, so memory use stays bounded. That represents about four hours at the default one-second interval, one hour at 250 ms, or twenty hours at five seconds. Stored timestamps keep zoom, panning, and hover ages correct when the sampling interval changes during a run. History is in memory only and resets when the app closes or the selected GPU changes; use CSV logging for long-term storage.
 
 Options:
 
