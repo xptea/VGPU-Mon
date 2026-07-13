@@ -13,7 +13,7 @@ body:
     attributes:
       label: VGPU-Mon version
       description: Paste the output of `vgpu --version`.
-      placeholder: VGPU-Mon 1.1.1
+      placeholder: VGPU-Mon 1.1.2
     validations:
       required: true
   - type: input

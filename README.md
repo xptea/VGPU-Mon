@@ -45,7 +45,7 @@ Some protected processes cannot be inspected or terminated without elevation. VG
 
 ## Install
 
-Download the installer or portable ZIP from [GitHub Releases](https://github.com/xptea/VGPU-Mon/releases). Run `VGPU-Mon-1.1.1-setup.exe` for a per-user installation. The installer adds the application directory to your user PATH, so a new terminal tab can run:
+Download the installer or portable ZIP from [GitHub Releases](https://github.com/xptea/VGPU-Mon/releases). Run `VGPU-Mon-<version>-setup.exe` for a per-user installation. The installer adds the application directory to your user PATH, so a new terminal tab can run:
 
 ```powershell
 vgpu
@@ -68,6 +68,14 @@ Install Visual Studio 2022 with **Desktop development with C++**. Include the op
 ```
 
 The build script discovers Visual Studio through `vswhere`, initializes the correct x64 native toolchain, and writes `build\vgpu-mon.exe`.
+
+A CMake target is also provided for IDEs and static-analysis tooling:
+
+```powershell
+cmake -S . -B build\cmake -A x64
+cmake --build build\cmake --config Release --parallel
+ctest --test-dir build\cmake -C Release --output-on-failure
+```
 
 The full local quality gates are:
 

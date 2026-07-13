@@ -32,11 +32,16 @@ jobs:
         uses: github/codeql-action/init@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4.37.0
         with:
           languages: c-cpp
-          build-mode: autobuild
+          build-mode: manual
           queries: security-and-quality
 
-      - name: Autobuild under CodeQL tracing
-        uses: github/codeql-action/autobuild@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4.37.0
+      - name: Configure CMake
+        shell: pwsh
+        run: cmake -S . -B build\codeql -A x64
+
+      - name: Build under CodeQL tracing
+        shell: pwsh
+        run: cmake --build build\codeql --config Release --parallel
 
       - name: Analyze
         uses: github/codeql-action/analyze@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4.37.0

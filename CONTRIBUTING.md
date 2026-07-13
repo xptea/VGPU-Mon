@@ -21,6 +21,8 @@ Security vulnerabilities must be reported privately as described in [SECURITY.md
 
 No NVIDIA SDK is needed. NVML is loaded dynamically at runtime.
 
+The PowerShell build is the release-authoritative path. `CMakeLists.txt` provides equivalent native targets for IDE integration, contributor workflows, and CodeQL compiler tracing.
+
 ## Development checks
 
 Run these from PowerShell before opening a pull request:

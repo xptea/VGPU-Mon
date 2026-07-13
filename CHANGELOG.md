@@ -4,6 +4,13 @@ All notable user-facing changes are documented here. This project follows [Seman
 
 ## [Unreleased]
 
+## [1.1.2] - 2026-07-13
+
+### Security and quality
+
+- Instrument C compilation as well as linking for Windows Control Flow Guard.
+- Add a tested CMake/MSBuild path for IDEs and accurate compiler-traced CodeQL analysis.
+
 ## [1.1.1] - 2026-07-13
 
 ### Added
@@ -26,5 +33,6 @@ All notable user-facing changes are documented here. This project follows [Seman
 
 - Added `/W4 /WX /sdl`, control-flow protection, ASLR/DEP/CET-compatible linker flags, reproducible Release builds, MSVC AddressSanitizer tests, CRT leak checks, static analysis, CodeQL, and pinned CI dependencies.
 
-[Unreleased]: https://github.com/xptea/VGPU-Mon/compare/v1.1.1...HEAD
+[Unreleased]: https://github.com/xptea/VGPU-Mon/compare/v1.1.2...HEAD
+[1.1.2]: https://github.com/xptea/VGPU-Mon/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/xptea/VGPU-Mon/releases/tag/v1.1.1

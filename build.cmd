@@ -35,10 +35,10 @@ if /i "%CONFIG%"=="Sanitize" (
   set "CFLAGS=/nologo /std:c11 /utf-8 /W4 /WX /sdl /O1 /Zi /MT /fsanitize=address /DVGPU_ASAN"
   set "LFLAGS=/DEBUG /INCREMENTAL:NO /DYNAMICBASE /NXCOMPAT /HIGHENTROPYVA /CETCOMPAT /MANIFEST:EMBED"
 ) else if /i "%CONFIG%"=="Debug" (
-  set "CFLAGS=/nologo /std:c11 /utf-8 /W4 /WX /sdl /Od /Zi /MTd /D_DEBUG"
+  set "CFLAGS=/nologo /std:c11 /utf-8 /W4 /WX /sdl /guard:cf /Od /Zi /MTd /D_DEBUG"
   set "LFLAGS=/DEBUG /DYNAMICBASE /NXCOMPAT /HIGHENTROPYVA /guard:cf /CETCOMPAT /MANIFEST:EMBED"
 ) else (
-  set "CFLAGS=/nologo /std:c11 /utf-8 /W4 /WX /sdl /O2 /GL /MT /DNDEBUG /Brepro"
+  set "CFLAGS=/nologo /std:c11 /utf-8 /W4 /WX /sdl /guard:cf /O2 /GL /MT /DNDEBUG /Brepro"
   set "LFLAGS=/LTCG /OPT:REF /OPT:ICF /INCREMENTAL:NO /DYNAMICBASE /NXCOMPAT /HIGHENTROPYVA /guard:cf /CETCOMPAT /MANIFEST:EMBED /Brepro"
 )
 
