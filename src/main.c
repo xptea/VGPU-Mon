@@ -1103,6 +1103,8 @@ static void render_chart_view(App *app, TextBuffer *buffer, int columns, int row
 
     clamp_chart_window(app);
     clamp_chart_pan(app);
+    /* Define the visible range with monotonic sample timestamps so changing
+       the refresh interval cannot distort older data. */
     ChartMetric metric = app->chart_metric;
     const char *unit = chart_metric_unit(metric);
     bool available = chart_metric_available(app, metric);
@@ -1118,6 +1120,7 @@ static void render_chart_view(App *app, TextBuffer *buffer, int columns, int row
     const int prefix_width = 8;
     int plot_width = columns - prefix_width;
     int chart_height = rows - 6;
+    /* Scratch columns are retained across frames and only grow on resize. */
     if (!ensure_chart_plot_capacity(app, (size_t)plot_width)) {
         render_chart_view_fallback(app, buffer, columns, rows);
         return;
@@ -1129,6 +1132,7 @@ static void render_chart_view(App *app, TextBuffer *buffer, int columns, int row
 
     size_t first_visible = count;
     size_t last_visible = count;
+    /* Bucket real samples into terminal columns while preserving peaks. */
     for (size_t i = 0; i < count; ++i) {
         ULONGLONG timestamp = chart_timestamp(app, i);
         if (timestamp < view_start || timestamp > view_end) continue;
@@ -1145,6 +1149,8 @@ static void render_chart_view(App *app, TextBuffer *buffer, int columns, int row
     }
 
     if (first_visible < count) {
+        /* Carry the last sample through empty columns to form a continuous
+           step chart without fabricating samples before history begins. */
         size_t cursor = first_visible;
         bool have_value = false;
         double held_value = 0.0;
@@ -1164,6 +1170,8 @@ static void render_chart_view(App *app, TextBuffer *buffer, int columns, int row
     }
 
     double scale = 100.0;
+    /* Percent metrics use a fixed scale; temperature and power expand only
+       when the visible data exceeds their normal ceiling. */
     if (metric == CHART_POWER) {
         scale = app->telemetry.power_limit_w > 0 ? app->telemetry.power_limit_w : 100.0;
         if (observed_max > scale) scale = ceil(observed_max * 1.10 / 10.0) * 10.0;
@@ -1207,9 +1215,12 @@ static void render_chart_view(App *app, TextBuffer *buffer, int columns, int row
     app->chart_plot_top = 3;
     app->chart_plot_bottom = 3 + chart_height - 1;
 
+    /* Resolve the pointer's time coordinate to the nearest stored sample and
+       prepare an ASCII tooltip that can be overlaid without changing width. */
     int hover_plot_x = -1;
     int tooltip_row = -1;
     int tooltip_start = -1;
+    int tooltip_length = 0;
     char tooltip[96] = "";
     char tooltip_display[96] = "";
     if (app->chart_hover_active &&
@@ -1253,7 +1264,7 @@ static void render_chart_view(App *app, TextBuffer *buffer, int columns, int row
             snprintf(tooltip, sizeof(tooltip), " No sample | %s ago ", age);
         }
         truncate_text(tooltip, tooltip_display, sizeof(tooltip_display), (size_t)plot_width);
-        int tooltip_length = (int)strlen(tooltip_display);
+        tooltip_length = (int)strlen(tooltip_display);
         tooltip_start = hover_plot_x + 2;
         if (tooltip_start + tooltip_length > plot_width)
             tooltip_start = hover_plot_x - tooltip_length - 1;
@@ -1263,6 +1274,8 @@ static void render_chart_view(App *app, TextBuffer *buffer, int columns, int row
     }
 
     const char *color = chart_color(metric);
+    /* Draw one bounded terminal row at a time. Tooltip-covered iterations
+       emit no cell because the first iteration emitted the complete overlay. */
     for (int row = 0; row < chart_height; ++row) {
         double upper = scale * (double)(chart_height - row) / (double)chart_height;
         double lower = scale * (double)(chart_height - row - 1) / (double)chart_height;
@@ -1271,11 +1284,13 @@ static void render_chart_view(App *app, TextBuffer *buffer, int columns, int row
         else text_buffer_append(buffer, "       |");
         text_buffer_append(buffer, "%s", color);
         for (int x = 0; x < plot_width; ++x) {
-            if (row == tooltip_row && x == tooltip_start && tooltip_display[0]) {
-                text_buffer_append(buffer, "%s%s%s%s", ANSI_RESET, ANSI_REVERSE,
-                                   tooltip_display, ANSI_RESET);
-                text_buffer_append(buffer, "%s", color);
-                x += (int)strlen(tooltip_display) - 1;
+            if (row == tooltip_row && x >= tooltip_start &&
+                x < tooltip_start + tooltip_length) {
+                if (x == tooltip_start) {
+                    text_buffer_append(buffer, "%s%s%s%s", ANSI_RESET, ANSI_REVERSE,
+                                       tooltip_display, ANSI_RESET);
+                    text_buffer_append(buffer, "%s", color);
+                }
                 continue;
             }
             const char *cell = (row == chart_height / 2) ? "-" : " ";
