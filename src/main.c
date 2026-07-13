@@ -3,6 +3,7 @@
 #include "nvml_dyn.h"
 #include "dxgi_gpu.h"
 #include "pdh_gpu.h"
+#include "updater.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -1409,6 +1410,8 @@ static void print_help(void) {
         "  --interval MS      Sampling interval, 250-5000 (default 1000)\n"
         "  --log PATH         Start interactive CSV logging immediately\n"
         "  --demo             Use deterministic sample data (UI preview/testing)\n"
+        "  --update           Check for and install an update now\n"
+        "  --no-update        Skip the automatic update check for this run\n"
         "  --help             Show this help\n"
         "  --version          Show the version\n\n"
         "Run without options in Windows Terminal for the interactive UI.\n"
@@ -1512,6 +1515,7 @@ static int app_main(int argc, char **argv) {
         }
         else if (strcmp(argument, "--log") == 0 && argument_index < argc) initial_log = argv[argument_index++];
         else if (strcmp(argument, "--demo") == 0) app->demo_mode = true;
+        else if (strcmp(argument, "--no-update") == 0) { /* handled before app initialization */ }
         else if (strcmp(argument, "--help") == 0 || strcmp(argument, "-h") == 0) { print_help(); free(app); return 0; }
         else if (strcmp(argument, "--version") == 0) { printf("VGPU-Mon %s\n", VGPU_VERSION); free(app); return 0; }
         else { fprintf(stderr, "Unknown or incomplete option: %s\n", argument); print_help(); free(app); return 2; }
@@ -1635,6 +1639,29 @@ int wmain(int argc, wchar_t **wide_argv) {
     _CrtSetReportFile(_CRT_WARN, _CRTDBG_FILE_STDERR);
     _CrtSetDbgFlag(_CRTDBG_ALLOC_MEM_DF);
 #endif
+    bool force_update = updater_is_forced(argc, wide_argv);
+    DWORD input_mode = 0, output_mode = 0;
+    bool interactive_console =
+        GetConsoleMode(GetStdHandle(STD_INPUT_HANDLE), &input_mode) != FALSE &&
+        GetConsoleMode(GetStdHandle(STD_OUTPUT_HANDLE), &output_mode) != FALSE;
+    if (force_update || (interactive_console && updater_should_check(argc, wide_argv))) {
+        VgpuUpdateResult update = updater_check_and_start(
+            argc, wide_argv, VGPU_VERSION, force_update);
+        if (update == VGPU_UPDATE_STARTED) return 0;
+        if (force_update) {
+            if (update == VGPU_UPDATE_CURRENT) {
+                printf("VGPU-Mon %s is already up to date.\n", VGPU_VERSION);
+                return 0;
+            }
+            if (update == VGPU_UPDATE_SKIPPED) {
+                fputs("VGPU-Mon: the update check was skipped.\n", stderr);
+            } else {
+                fputs("VGPU-Mon: the update check failed; the current version was not changed.\n",
+                      stderr);
+            }
+            return 1;
+        }
+    }
     char **argv = (char **)calloc((size_t)argc, sizeof(*argv));
     if (!argv) {
         fputs("VGPU-Mon: out of memory while reading arguments.\n", stderr);

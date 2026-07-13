@@ -24,6 +24,7 @@ It is a real full-screen terminal application, not a wrapper around `nvidia-smi`
 - Pause/resume and adjustable 250-5000 ms refresh interval
 - CSV logging
 - One-shot human-readable and JSON output for scripts
+- Automatic, checksum-verified updates for installed interactive launches
 - Statically linked MSVC runtime; no NVML SDK or third-party runtime required
 
 ## Runtime requirements and compatibility
@@ -61,6 +62,10 @@ vgpu --json
 ```
 
 Existing terminal processes keep their old environment. Uninstalling VGPU-Mon from Windows Settings removes the PATH entry only when the installer originally added it.
+
+Starting with VGPU-Mon 1.2.0, an installed interactive launch checks the latest stable release's small `version.txt` manifest. If a newer version exists, VGPU-Mon downloads that exact versioned installer, verifies its SHA-256 with Windows cryptography, installs it without elevation, and reopens with the same interactive options. Network or GitHub failures do not prevent the monitor from opening. Redirected output and script commands (`--json`, `--once`, `--version`, and `--demo`) never perform an automatic update check.
+
+Use `vgpu --update` to check immediately. Use `--no-update` for one launch or set `VGPU_MON_NO_UPDATE=1` to disable automatic checks. Portable ZIP copies do not update silently; `vgpu --update` converts a portable copy into the normal per-user installation.
 
 Prefer to inspect scripts before running them? [Read `install.ps1`](install.ps1), or download the versioned installer/portable ZIP manually from Releases. Release assets include `SHA256SUMS.txt`. Windows SmartScreen may warn about community-built releases until the project has a trusted code-signing certificate; always verify the download came from this repository.
 
@@ -185,6 +190,8 @@ Options:
 --interval MS      Sampling interval from 250 to 5000
 --log PATH         Start CSV logging when interactive mode opens
 --demo             Use deterministic sample data for previews and tests
+--update           Check for and install an update now
+--no-update        Skip the automatic update check for this run
 --help             Show help
 --version          Show the version
 ```

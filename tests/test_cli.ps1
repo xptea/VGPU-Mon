@@ -45,6 +45,11 @@ if ($version.Trim() -ne "VGPU-Mon $expectedVersion") {
     throw "Unexpected version output: $version"
 }
 
+$versionWithoutUpdate = (Invoke-ExpectedExit 0 @('--no-update', '--version')) -join "`n"
+if ($versionWithoutUpdate.Trim() -ne "VGPU-Mon $expectedVersion") {
+    throw "Unexpected --no-update version output: $versionWithoutUpdate"
+}
+
 $jsonText = (Invoke-ExpectedExit 0 @('--demo', '--interval', '250', '--json')) -join "`n"
 $snapshot = $jsonText | ConvertFrom-Json
 if ($snapshot.name -ne 'VGPU-Mon Demo GPU') {
