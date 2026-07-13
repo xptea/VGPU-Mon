@@ -44,19 +44,20 @@ if /i "%CONFIG%"=="Sanitize" (
 
 if not exist build\obj\app mkdir build\obj\app
 if not exist build\obj\tests mkdir build\obj\tests
+if not exist build\obj\tests\update mkdir build\obj\tests\update
 
 rc /nologo /fo build\obj\app\vgpu.res src\vgpu.rc
 if errorlevel 1 exit /b %errorlevel%
 
 cl %CFLAGS% /Fo:build\obj\app\ /Fd:build\obj\app\compiler.pdb /Fe:build\%OUTPUT_NAME%.exe ^
-  src\main.c src\util.c src\nvml_dyn.c src\dxgi_gpu.c src\pdh_gpu.c build\obj\app\vgpu.res ^
-  /link %LFLAGS% pdh.lib dxgi.lib dxguid.lib psapi.lib advapi32.lib shell32.lib ole32.lib
+  src\main.c src\util.c src\nvml_dyn.c src\dxgi_gpu.c src\pdh_gpu.c src\updater.c build\obj\app\vgpu.res ^
+  /link %LFLAGS% pdh.lib dxgi.lib dxguid.lib psapi.lib advapi32.lib shell32.lib ole32.lib winhttp.lib bcrypt.lib
 if errorlevel 1 exit /b %errorlevel%
 
 if /i "%RUN_TESTS%"=="test" (
   cl %CFLAGS% /Fo:build\obj\tests\ /Fd:build\obj\tests\compiler.pdb /Fe:build\vgpu-tests.exe ^
-    tests\test_core.c src\util.c src\pdh_gpu.c ^
-    /link %LFLAGS% pdh.lib psapi.lib advapi32.lib
+    tests\test_core.c src\util.c src\pdh_gpu.c src\updater.c ^
+    /link %LFLAGS% pdh.lib psapi.lib advapi32.lib shell32.lib winhttp.lib bcrypt.lib
   if errorlevel 1 exit /b 1
   build\vgpu-tests.exe
   if errorlevel 1 exit /b 1
@@ -64,6 +65,10 @@ if /i "%RUN_TESTS%"=="test" (
     tests\test_conpty.c
   if errorlevel 1 exit /b 1
   build\vgpu-conpty-tests.exe build\%OUTPUT_NAME%.exe
+  if errorlevel 1 exit /b 1
+  cl %CFLAGS% /Fo:build\obj\tests\update\ /Fd:build\obj\tests\update\compiler.pdb /Fe:build\vgpu-update-smoke.exe ^
+    tests\update_smoke.c src\updater.c ^
+    /link %LFLAGS% shell32.lib advapi32.lib winhttp.lib bcrypt.lib
   if errorlevel 1 exit /b 1
   powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests\test_cli.ps1 -Executable build\%OUTPUT_NAME%.exe
   if errorlevel 1 exit /b 1

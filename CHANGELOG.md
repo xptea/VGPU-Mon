@@ -4,6 +4,21 @@ All notable user-facing changes are documented here. This project follows [Seman
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-07-13
+
+### Added
+
+- Check a small version manifest on each installed interactive launch and automatically install newer stable releases.
+- Verify the exact versioned setup executable with Windows SHA-256 APIs before starting an update.
+- Relaunch the monitor with its original interactive options after an update handoff.
+- Add `--update`, `--no-update`, and the `VGPU_MON_NO_UPDATE` environment opt-out.
+
+### Security and quality
+
+- Keep JSON, one-shot, version, help, and demo commands network-free and deterministic.
+- Reject malformed manifests, path-like installer names, HTTPS downgrades, oversized downloads, and checksum mismatches.
+- Publish `version.txt` and checksum it alongside every release asset.
+
 ## [1.1.4] - 2026-07-13
 
 ### Fixed
@@ -55,7 +70,8 @@ All notable user-facing changes are documented here. This project follows [Seman
 
 - Added `/W4 /WX /sdl`, control-flow protection, ASLR/DEP/CET-compatible linker flags, reproducible Release builds, MSVC AddressSanitizer tests, CRT leak checks, static analysis, CodeQL, and pinned CI dependencies.
 
-[Unreleased]: https://github.com/xptea/VGPU-Mon/compare/v1.1.4...HEAD
+[Unreleased]: https://github.com/xptea/VGPU-Mon/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/xptea/VGPU-Mon/compare/v1.1.4...v1.2.0
 [1.1.4]: https://github.com/xptea/VGPU-Mon/compare/v1.1.3...v1.1.4
 [1.1.3]: https://github.com/xptea/VGPU-Mon/compare/v1.1.2...v1.1.3
 [1.1.2]: https://github.com/xptea/VGPU-Mon/compare/v1.1.1...v1.1.2

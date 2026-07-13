@@ -1,6 +1,7 @@
 #define _CRT_SECURE_NO_WARNINGS
 #include "../src/vgpu.h"
 #include "../src/pdh_gpu.h"
+#include "../src/updater.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -61,6 +62,53 @@ static void test_safe_process_helpers(void) {
     EXPECT(strstr(message, "Refused") != NULL);
 }
 
+static void test_updater_manifest(void) {
+    unsigned int parts[3];
+    EXPECT(updater_parse_version("1.2.0", parts));
+    EXPECT(parts[0] == 1 && parts[1] == 2 && parts[2] == 0);
+    EXPECT(!updater_parse_version("1.2", parts));
+    EXPECT(!updater_parse_version("01.2.0", parts));
+    EXPECT(!updater_parse_version("1.2.0-beta", parts));
+
+    int comparison = 99;
+    EXPECT(updater_compare_versions("1.2.0", "1.2.1", &comparison) && comparison < 0);
+    EXPECT(updater_compare_versions("2.0.0", "1.9.9", &comparison) && comparison > 0);
+    EXPECT(updater_compare_versions("1.2.0", "1.2.0", &comparison) && comparison == 0);
+
+    const char *valid =
+        "version=1.2.0\r\n"
+        "installer=VGPU-Mon-1.2.0-setup.exe\r\n"
+        "sha256=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\r\n";
+    VgpuUpdateManifest manifest;
+    EXPECT(updater_parse_manifest(valid, &manifest));
+    EXPECT(strcmp(manifest.version, "1.2.0") == 0);
+    EXPECT(strcmp(manifest.installer_name, "VGPU-Mon-1.2.0-setup.exe") == 0);
+    EXPECT(manifest.sha256[0] == 0x01 && manifest.sha256[31] == 0xef);
+
+    EXPECT(!updater_parse_manifest(
+        "version=1.2.0\ninstaller=..\\evil.exe\n"
+        "sha256=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\n",
+        &manifest));
+    EXPECT(!updater_parse_manifest(
+        "version=1.2.0\ninstaller=VGPU-Mon-1.2.0-setup.exe\nsha256=bad\n",
+        &manifest));
+    EXPECT(!updater_parse_manifest(
+        "version=1.2.0\nversion=1.2.0\ninstaller=VGPU-Mon-1.2.0-setup.exe\n"
+        "sha256=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\n",
+        &manifest));
+}
+
+static void test_updater_argument_policy(void) {
+    wchar_t *interactive[] = {L"vgpu.exe", L"--chart", L"vram"};
+    wchar_t *json[] = {L"vgpu.exe", L"--json"};
+    wchar_t *disabled[] = {L"vgpu.exe", L"--no-update"};
+    wchar_t *forced[] = {L"vgpu.exe", L"--update"};
+    EXPECT(updater_should_check(3, interactive));
+    EXPECT(!updater_should_check(2, json));
+    EXPECT(!updater_should_check(2, disabled));
+    EXPECT(updater_is_forced(2, forced));
+}
+
 int main(void) {
 #ifdef _DEBUG
     _CrtSetReportMode(_CRT_WARN, _CRTDBG_MODE_FILE);
@@ -71,6 +119,8 @@ int main(void) {
     test_parse_gpu_instance();
     test_text_helpers();
     test_safe_process_helpers();
+    test_updater_manifest();
+    test_updater_argument_policy();
     if (failures) {
         fprintf(stderr, "%d test(s) failed\n", failures);
         return 1;

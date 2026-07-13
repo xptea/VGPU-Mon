@@ -49,14 +49,7 @@ jobs:
           .\tests\test_installer.ps1 -InstallerPath (Get-ChildItem .\dist\VGPU-Mon-*-setup.exe -File).FullName
 
       - name: Write SHA-256 checksums
-        run: |
-          Copy-Item .\install.ps1 .\dist\install.ps1
-          $assets = Get-ChildItem .\dist\VGPU-Mon-*.zip, .\dist\VGPU-Mon-*-setup.exe, .\dist\install.ps1 -File | Sort-Object Name
-          $lines = foreach ($asset in $assets) {
-            $hash = (Get-FileHash $asset.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-            "$hash  $($asset.Name)"
-          }
-          $lines | Set-Content .\dist\SHA256SUMS.txt -Encoding ascii
+        run: .\tools\stage-release-metadata.ps1
 
       - name: Upload verified release assets
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -66,6 +59,7 @@ jobs:
             dist/*.zip
             dist/*-setup.exe
             dist/install.ps1
+            dist/version.txt
             dist/SHA256SUMS.txt
           if-no-files-found: error
 
@@ -76,5 +70,14 @@ jobs:
         run: |
           $zip = (Get-ChildItem .\dist\VGPU-Mon-*.zip -File).FullName
           $setup = (Get-ChildItem .\dist\VGPU-Mon-*-setup.exe -File).FullName
-          gh release create $env:GITHUB_REF_NAME $zip $setup .\dist\install.ps1 .\dist\SHA256SUMS.txt `
+          gh release create $env:GITHUB_REF_NAME $zip $setup .\dist\install.ps1 `
+            .\dist\version.txt .\dist\SHA256SUMS.txt `
             --verify-tag --generate-notes --title "VGPU-Mon $env:GITHUB_REF_NAME"
+
+      - name: Test live automatic update lifecycle
+        if: github.event_name == 'push'
+        run: |
+          $version = $env:GITHUB_REF_NAME.TrimStart('v')
+          .\tests\test_live_update.ps1 `
+            -Executable .\build\vgpu-update-smoke.exe `
+            -ExpectedVersion $version

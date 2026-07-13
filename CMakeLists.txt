@@ -32,22 +32,31 @@ add_executable(vgpu-mon
     src/nvml_dyn.c
     src/dxgi_gpu.c
     src/pdh_gpu.c
+    src/updater.c
     src/vgpu.rc)
 vgpu_configure_target(vgpu-mon)
 target_link_libraries(vgpu-mon PRIVATE
-    pdh dxgi dxguid psapi advapi32 shell32 ole32)
+    pdh dxgi dxguid psapi advapi32 shell32 ole32 winhttp bcrypt)
 
 include(CTest)
 if(BUILD_TESTING)
     add_executable(vgpu-tests
         tests/test_core.c
         src/util.c
-        src/pdh_gpu.c)
+        src/pdh_gpu.c
+        src/updater.c)
     vgpu_configure_target(vgpu-tests)
-    target_link_libraries(vgpu-tests PRIVATE pdh psapi advapi32)
+    target_link_libraries(vgpu-tests PRIVATE pdh psapi advapi32 shell32 winhttp bcrypt)
 
     add_executable(vgpu-conpty-tests tests/test_conpty.c)
     vgpu_configure_target(vgpu-conpty-tests)
+
+    add_executable(vgpu-update-smoke
+        tests/update_smoke.c
+        src/updater.c)
+    vgpu_configure_target(vgpu-update-smoke)
+    target_link_libraries(vgpu-update-smoke PRIVATE
+        advapi32 shell32 winhttp bcrypt)
 
     add_test(NAME core COMMAND vgpu-tests)
     add_test(NAME conpty COMMAND vgpu-conpty-tests $<TARGET_FILE:vgpu-mon>)
