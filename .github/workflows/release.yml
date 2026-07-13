@@ -50,7 +50,8 @@ jobs:
 
       - name: Write SHA-256 checksums
         run: |
-          $assets = Get-ChildItem .\dist\VGPU-Mon-*.zip, .\dist\VGPU-Mon-*-setup.exe -File | Sort-Object Name
+          Copy-Item .\install.ps1 .\dist\install.ps1
+          $assets = Get-ChildItem .\dist\VGPU-Mon-*.zip, .\dist\VGPU-Mon-*-setup.exe, .\dist\install.ps1 -File | Sort-Object Name
           $lines = foreach ($asset in $assets) {
             $hash = (Get-FileHash $asset.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
             "$hash  $($asset.Name)"
@@ -64,6 +65,7 @@ jobs:
           path: |
             dist/*.zip
             dist/*-setup.exe
+            dist/install.ps1
             dist/SHA256SUMS.txt
           if-no-files-found: error
 
@@ -74,5 +76,5 @@ jobs:
         run: |
           $zip = (Get-ChildItem .\dist\VGPU-Mon-*.zip -File).FullName
           $setup = (Get-ChildItem .\dist\VGPU-Mon-*-setup.exe -File).FullName
-          gh release create $env:GITHUB_REF_NAME $zip $setup .\dist\SHA256SUMS.txt `
+          gh release create $env:GITHUB_REF_NAME $zip $setup .\dist\install.ps1 .\dist\SHA256SUMS.txt `
             --verify-tag --generate-notes --title "VGPU-Mon $env:GITHUB_REF_NAME"

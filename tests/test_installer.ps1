@@ -119,4 +119,78 @@ if (Test-Path -LiteralPath 'HKCU:\Software\VGPU-Mon') {
     throw 'Uninstall left VGPU-Mon installer state behind.'
 }
 
-Write-Host 'Installer install, PATH command, and uninstall restoration tests passed.'
+$checksumPath = Join-Path ([IO.Path]::GetTempPath()) "vgpu-mon-checksums-$([Guid]::NewGuid().ToString('N')).txt"
+$bootstrapInstalled = $false
+try {
+    $installerHash = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash.ToLowerInvariant()
+    "$('0' * 64)  $(Split-Path -Leaf $installer)" |
+        Set-Content -LiteralPath $checksumPath -Encoding ascii
+    $rejectedBadChecksum = $false
+    try {
+        & (Join-Path $root 'install.ps1') -InstallerPath $installer -ChecksumPath $checksumPath
+    }
+    catch {
+        if ($_.Exception.Message -like 'SHA-256 verification failed*') {
+            $rejectedBadChecksum = $true
+        }
+        else {
+            throw
+        }
+    }
+    if (-not $rejectedBadChecksum) {
+        throw 'Bootstrap installer accepted an invalid SHA-256 checksum.'
+    }
+    if (Test-Path -LiteralPath $installDir) {
+        throw 'Bootstrap installer ran setup after checksum verification failed.'
+    }
+
+    "$installerHash  $(Split-Path -Leaf $installer)" |
+        Set-Content -LiteralPath $checksumPath -Encoding ascii
+
+    & (Join-Path $root 'install.ps1') -InstallerPath $installer -ChecksumPath $checksumPath
+    $bootstrapInstalled = $true
+    if (-not (Test-Path -LiteralPath $installedExe)) {
+        throw 'Bootstrap installer did not create vgpu.exe.'
+    }
+    $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+    $entries = @($userPath -split ';' | Where-Object {
+        $_.Trim().Trim('"').TrimEnd('\') -ieq $installDir
+    })
+    if ($entries.Count -ne 1) {
+        throw "Bootstrap installer produced $($entries.Count) VGPU-Mon PATH entries."
+    }
+    $machinePath = [Environment]::GetEnvironmentVariable('Path', 'Machine')
+    $oldProcessPath = $env:Path
+    try {
+        $env:Path = "$userPath;$machinePath"
+        $version = & vgpu --version
+        if ($LASTEXITCODE -ne 0 -or $version -ne "VGPU-Mon $expectedVersion") {
+            throw "Bootstrap-installed vgpu smoke test failed: $version"
+        }
+    }
+    finally {
+        $env:Path = $oldProcessPath
+    }
+
+    Invoke-HiddenProcess $uninstaller @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART')
+    $bootstrapInstalled = $false
+}
+finally {
+    if ($bootstrapInstalled -and (Test-Path -LiteralPath $uninstaller)) {
+        Invoke-HiddenProcess $uninstaller @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART')
+    }
+    Remove-Item -LiteralPath $checksumPath -Force -ErrorAction SilentlyContinue
+}
+
+$afterBootstrap = Get-UserPathState
+if ($afterBootstrap.Value -cne $before.Value -or $afterBootstrap.Kind -cne $before.Kind) {
+    throw 'Bootstrap install/uninstall changed the original user PATH.'
+}
+if (Test-Path -LiteralPath $installDir) {
+    throw 'Bootstrap uninstall left the application directory behind.'
+}
+if (Test-Path -LiteralPath 'HKCU:\Software\VGPU-Mon') {
+    throw 'Bootstrap uninstall left VGPU-Mon installer state behind.'
+}
+
+Write-Host 'Installer, curl bootstrap, PATH command, upgrade, and uninstall tests passed.'
