@@ -31,6 +31,7 @@ add_executable(vgpu-mon
     src/util.c
     src/nvml_dyn.c
     src/dxgi_gpu.c
+    src/d3dkmt_gpu.c
     src/pdh_gpu.c
     src/updater.c
     src/vgpu.rc)

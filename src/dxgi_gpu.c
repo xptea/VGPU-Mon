@@ -41,6 +41,7 @@ bool dxgi_open(DxgiContext *context) {
         unsigned int slot = context->count++;
         context->adapters[slot] = adapter3;
         wide_to_utf8(description.Description, context->names[slot], sizeof(context->names[slot]));
+        context->adapter_luids[slot] = description.AdapterLuid;
         context->dedicated_memory[slot] = (uint64_t)description.DedicatedVideoMemory;
         context->vendor_ids[slot] = description.VendorId;
     }

@@ -55,6 +55,8 @@ typedef struct {
     uint64_t dedicated_bytes;
     uint64_t shared_bytes;
     bool dedicated_memory_invalid;
+    bool dedicated_memory_direct;
+    bool shared_memory_direct;
     char engine[48];
 } GpuProcess;
 

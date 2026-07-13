@@ -4,6 +4,18 @@ All notable user-facing changes are documented here. This project follows [Seman
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-07-13
+
+### Changed
+
+- Query current local and non-local video-memory usage per process through the documented D3DKMT API instead of trusting the stale-prone GPU Process Memory performance counter as the primary source.
+- Keep PDH memory accounting only as a validated fallback for protected processes that Windows does not allow VGPU-Mon to open.
+- Report dedicated and shared memory provenance in JSON and CSV while retaining the older JSON aliases and CSV column names for compatibility.
+
+### Fixed
+
+- Replace impossible multi-gigabyte Zen, Desktop Window Manager, and NVIDIA Overlay process readings with direct adapter-scoped values or a per-row `N/A !` fallback without hiding unrelated process memory.
+
 ## [1.3.2] - 2026-07-13
 
 ### Fixed

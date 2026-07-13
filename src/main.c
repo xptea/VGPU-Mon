@@ -2,6 +2,7 @@
 #include "vgpu.h"
 #include "nvml_dyn.h"
 #include "dxgi_gpu.h"
+#include "d3dkmt_gpu.h"
 #include "pdh_gpu.h"
 #include "updater.h"
 
@@ -86,9 +87,11 @@ typedef struct {
 typedef struct {
     NvmlContext nvml;
     DxgiContext dxgi;
+    D3dkmtGpuContext d3dkmt;
     PdhGpuContext pdh;
     bool nvml_ready;
     bool dxgi_ready;
+    bool d3dkmt_ready;
     bool pdh_ready;
     unsigned int gpu_count;
     unsigned int selected_gpu;
@@ -96,6 +99,7 @@ typedef struct {
     GpuTelemetry telemetry;
     GpuEngineStats engines;
     bool wddm_process_memory_suspect;
+    size_t direct_process_memory_count;
     GpuProcess processes[VGPU_MAX_PROCESSES];
     size_t process_count;
     GpuProcess *visible[VGPU_MAX_PROCESSES];
@@ -522,6 +526,19 @@ static bool ensure_chart_plot_capacity(App *app, size_t needed) {
     return true;
 }
 
+static const char *dedicated_memory_source(const App *app,
+                                           const GpuProcess *process) {
+    if (app->demo_mode) return "demo";
+    if (process->dedicated_memory_invalid) return "unavailable";
+    return process->dedicated_memory_direct ? "d3dkmt" : "pdh";
+}
+
+static const char *shared_memory_source(const App *app,
+                                        const GpuProcess *process) {
+    if (app->demo_mode) return "demo";
+    return process->shared_memory_direct ? "d3dkmt" : "pdh";
+}
+
 static void log_sample(App *app) {
     if (!app->log_file) return;
     char timestamp[64], gpu_name[256], process_name[520], engine[96];
@@ -549,7 +566,7 @@ static void log_sample(App *app) {
                 app->telemetry.pcie_generation, app->telemetry.pcie_width,
                 app->telemetry.pcie_tx_mib_s, app->telemetry.pcie_rx_mib_s);
         if (!process) {
-            fputs(",,,,,,\n", app->log_file);
+            fputs(",,,,,,,\n", app->log_file);
             continue;
         }
         sanitize_csv_field(process->name, process_name, sizeof(process_name));
@@ -558,8 +575,10 @@ static void log_sample(App *app) {
                 (unsigned long)process->pid, process_name, process->gpu_percent);
         if (!process->dedicated_memory_invalid)
             fprintf(app->log_file, "%llu", (unsigned long long)process->dedicated_bytes);
-        fprintf(app->log_file, ",%llu,\"%s\"\n",
-                (unsigned long long)process->shared_bytes, engine);
+        fprintf(app->log_file, ",%llu,\"%s\",%s,%s\n",
+                (unsigned long long)process->shared_bytes, engine,
+                dedicated_memory_source(app, process),
+                shared_memory_source(app, process));
     }
     if (fflush(app->log_file) != 0 || ferror(app->log_file)) {
         fclose(app->log_file);
@@ -590,7 +609,7 @@ static bool start_logging(App *app, const char *path) {
     }
     fseek(app->log_file, 0, SEEK_END);
     if (ftell(app->log_file) == 0) {
-        fputs("timestamp,gpu_index,gpu_name,gpu_percent,wddm_busiest_engine_percent,wddm_3d_percent,wddm_copy_percent,wddm_video_decode_percent,wddm_video_encode_percent,wddm_compute_percent,wddm_other_percent,memory_controller_percent,vram_used_bytes,vram_total_bytes,vram_reserved_bytes,memory_budget_bytes,temperature_c,fan_percent,power_w,power_limit_w,graphics_clock_mhz,memory_clock_mhz,pstate,encoder_percent,decoder_percent,pcie_generation,pcie_width,pcie_tx_mib_s,pcie_rx_mib_s,pid,process,process_gpu_percent,dedicated_commit_bytes,shared_commit_bytes,engine\n",
+        fputs("timestamp,gpu_index,gpu_name,gpu_percent,wddm_busiest_engine_percent,wddm_3d_percent,wddm_copy_percent,wddm_video_decode_percent,wddm_video_encode_percent,wddm_compute_percent,wddm_other_percent,memory_controller_percent,vram_used_bytes,vram_total_bytes,vram_reserved_bytes,memory_budget_bytes,temperature_c,fan_percent,power_w,power_limit_w,graphics_clock_mhz,memory_clock_mhz,pstate,encoder_percent,decoder_percent,pcie_generation,pcie_width,pcie_tx_mib_s,pcie_rx_mib_s,pid,process,process_gpu_percent,dedicated_commit_bytes,shared_commit_bytes,engine,dedicated_memory_source,shared_memory_source\n",
               app->log_file);
         fflush(app->log_file);
     }
@@ -683,9 +702,16 @@ static bool sample_app(App *app) {
     } else {
         app->process_count = 0;
     }
-    /* Reject only rows that cannot fit inside physical VRAM or, when NVML is
-       available, the board's current allocation plus sampling slack. A broken
-       WDDM row must not erase otherwise useful process-memory data. */
+    app->direct_process_memory_count = 0;
+    if (app->d3dkmt_ready) {
+        app->direct_process_memory_count = d3dkmt_gpu_enrich_process_memory(
+            &app->d3dkmt, app->selected_gpu, app->processes,
+            app->process_count);
+    }
+    /* Direct D3DKMT values need only fit physical VRAM. PDH fallback rows also
+       use current board allocation as a guard against its documented stale
+       allocation bug. A protected process such as DWM can therefore become
+       unavailable without contaminating ordinary process rows. */
     app->wddm_process_memory_suspect =
         invalidate_implausible_dedicated_gpu_memory(
             app->processes, app->process_count, app->telemetry.memory_total,
@@ -835,9 +861,9 @@ static void render_help(TextBuffer *buffer) {
         "  Home/End              Oldest retained/live         Hover  Exact point value\n\n"
         "%sAccounting%s\n"
         "  Process GPU %% is the busiest Windows GPU engine for that PID, matching Task Manager's\n"
-        "  model. Dedicated/shared values come from WDDM counters. Only an individual row\n"
-        "  that cannot fit the physical board reading is shown as N/A; other process rows\n"
-        "  remain visible. A trailing ! marks the documented Windows counter error.\n"
+        "  model. Dedicated/shared values use Windows' direct per-process video-memory API.\n"
+        "  Protected processes may fall back to WDDM counters; an implausible fallback is\n"
+        "  shown as N/A while other rows remain visible. A trailing ! marks that rejection.\n"
         "  Board telemetry comes from NVML; DXGI supplies a vendor-neutral memory fallback.\n",
         ANSI_BOLD, ANSI_RESET, ANSI_BOLD, ANSI_RESET, ANSI_BOLD, ANSI_RESET);
 }
@@ -852,9 +878,10 @@ static void render_gpu_info(TextBuffer *buffer, const App *app) {
     if (app->demo_mode) {
         text_buffer_append(buffer, "  Sources      Deterministic demo data\n");
     } else {
-        text_buffer_append(buffer, "  Sources      %s%s%s\n",
+        text_buffer_append(buffer, "  Sources      %s%s%s%s\n",
                            gpu->nvml_available ? "NVML " : "",
                            gpu->dxgi_available ? "DXGI " : "",
+                           app->d3dkmt_ready ? "D3DKMT " : "",
                            app->pdh_ready ? "WDDM performance counters" : "");
     }
     text_buffer_append(buffer, "  VRAM         %s allocated, %s reserved, %s free, %s physical\n",
@@ -1417,7 +1444,8 @@ static void render_app(App *app, TextBuffer *buffer) {
     } else {
         char footer[512], clipped[512];
         const char *health = !app->pdh_ready && !app->demo_mode ? "! WDDM counters unavailable | " :
-                             app->wddm_process_memory_suspect ? "! WDDM process-memory anomaly | " : "";
+                             !app->d3dkmt_ready && !app->demo_mode ? "! Direct process memory unavailable | " :
+                             app->wddm_process_memory_suspect ? "! WDDM fallback anomaly | " : "";
         snprintf(footer, sizeof(footer), "%s%s %s | %zu processes | filter: %s | c chart | h help | q quit",
                  health,
                  sort_name(app->sort_mode), app->sort_descending ? "high-low" : "low-high",
@@ -1751,6 +1779,8 @@ static void print_once_json(const App *app) {
     fputs(",\"uuid\":", stdout); write_json_string(app->telemetry.uuid);
     printf(",\"wddm_process_memory_warning\":%s",
            app->wddm_process_memory_suspect ? "true" : "false");
+    printf(",\"direct_process_memory_count\":%zu",
+           app->direct_process_memory_count);
     printf(",\"gpu_percent\":%.1f,\"wddm_busiest_engine_percent\":%.1f,\"memory_used_bytes\":%llu,\"memory_total_bytes\":%llu,"
            "\"memory_free_bytes\":%llu,\"memory_reserved_bytes\":%llu,\"memory_budget_bytes\":%llu,\"memory_controller_percent\":%.1f,\"temperature_c\":%d,\"fan_percent\":%d,"
            "\"power_w\":%.2f,\"power_limit_w\":%.2f,\"graphics_clock_mhz\":%d,"
@@ -1782,11 +1812,19 @@ static void print_once_json(const App *app) {
         const GpuProcess *process = app->visible[i];
         if (i) putchar(',');
         printf("{\"pid\":%lu,\"name\":", (unsigned long)process->pid); write_json_string(process->name);
-        printf(",\"gpu_percent\":%.2f,\"dedicated_commit_bytes\":", process->gpu_percent);
+        printf(",\"gpu_percent\":%.2f,\"dedicated_memory_bytes\":", process->gpu_percent);
         if (process->dedicated_memory_invalid) fputs("null", stdout);
         else printf("%llu", (unsigned long long)process->dedicated_bytes);
-        printf(",\"shared_commit_bytes\":%llu,\"engine\":",
+        fputs(",\"dedicated_commit_bytes\":", stdout);
+        if (process->dedicated_memory_invalid) fputs("null", stdout);
+        else printf("%llu", (unsigned long long)process->dedicated_bytes);
+        printf(",\"shared_memory_bytes\":%llu,\"shared_commit_bytes\":%llu,\"dedicated_memory_source\":",
+               (unsigned long long)process->shared_bytes,
                (unsigned long long)process->shared_bytes);
+        write_json_string(dedicated_memory_source(app, process));
+        fputs(",\"shared_memory_source\":", stdout);
+        write_json_string(shared_memory_source(app, process));
+        fputs(",\"engine\":", stdout);
         write_json_string(process->engine);
         putchar('}');
     }
@@ -1869,6 +1907,10 @@ static bool initialize_app(App *app) {
     }
     app->nvml_ready = nvml_open(&app->nvml);
     app->dxgi_ready = dxgi_open(&app->dxgi);
+    if (app->dxgi_ready) {
+        app->d3dkmt_ready = d3dkmt_gpu_open(
+            &app->d3dkmt, app->dxgi.adapter_luids, app->dxgi.count);
+    }
     app->pdh_ready = pdh_gpu_open(&app->pdh);
     app->gpu_count = app->dxgi_ready ? app->dxgi.count : 0;
     if (app->nvml_ready && app->nvml.device_count > app->gpu_count) app->gpu_count = app->nvml.device_count;
@@ -1884,9 +1926,11 @@ static void cleanup_app(App *app) {
     app->chart_plot_values = NULL;
     app->chart_plot_capacity = 0;
     pdh_gpu_close(&app->pdh);
+    d3dkmt_gpu_close(&app->d3dkmt);
     dxgi_close(&app->dxgi);
     nvml_close(&app->nvml);
     app->pdh_ready = false;
+    app->d3dkmt_ready = false;
     app->dxgi_ready = false;
     app->nvml_ready = false;
 }
