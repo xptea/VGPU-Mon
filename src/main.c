@@ -683,13 +683,13 @@ static bool sample_app(App *app) {
     } else {
         app->process_count = 0;
     }
-    /* Microsoft documents that one bad GPU Process Memory value means the
-       affected counter source is accumulating stale allocations. There is no
-       trustworthy way to identify the other poisoned rows, so quarantine the
-       dedicated column for the whole snapshot instead of allowing a smaller
-       but equally stale value (for example DWM) to look real. */
-    app->wddm_process_memory_suspect = quarantine_invalid_dedicated_gpu_memory(
-        app->processes, app->process_count, app->telemetry.memory_total);
+    /* Reject only rows that cannot fit inside physical VRAM or, when NVML is
+       available, the board's current allocation plus sampling slack. A broken
+       WDDM row must not erase otherwise useful process-memory data. */
+    app->wddm_process_memory_suspect =
+        invalidate_implausible_dedicated_gpu_memory(
+            app->processes, app->process_count, app->telemetry.memory_total,
+            app->telemetry.memory_used, app->telemetry.nvml_available) > 0;
     update_visible_processes(app);
     add_history_sample(app);
     log_sample(app);
@@ -835,9 +835,9 @@ static void render_help(TextBuffer *buffer) {
         "  Home/End              Oldest retained/live         Hover  Exact point value\n\n"
         "%sAccounting%s\n"
         "  Process GPU %% is the busiest Windows GPU engine for that PID, matching Task Manager's\n"
-        "  model. Dedicated/shared values come from WDDM counters. If Windows returns one\n"
-        "  impossible dedicated value, the full dedicated snapshot is shown as N/A because\n"
-        "  other rows can contain the same documented stale-allocation counter error.\n"
+        "  model. Dedicated/shared values come from WDDM counters. Only an individual row\n"
+        "  that cannot fit the physical board reading is shown as N/A; other process rows\n"
+        "  remain visible. A trailing ! marks the documented Windows counter error.\n"
         "  Board telemetry comes from NVML; DXGI supplies a vendor-neutral memory fallback.\n",
         ANSI_BOLD, ANSI_RESET, ANSI_BOLD, ANSI_RESET, ANSI_BOLD, ANSI_RESET);
 }

@@ -92,23 +92,30 @@ bool dedicated_gpu_memory_plausible(uint64_t bytes, uint64_t physical_total) {
     return physical_total == 0 || bytes <= physical_total;
 }
 
-bool quarantine_invalid_dedicated_gpu_memory(GpuProcess *processes, size_t count,
-                                             uint64_t physical_total) {
-    if (!processes || physical_total == 0) return false;
-    bool invalid = false;
+size_t invalidate_implausible_dedicated_gpu_memory(
+    GpuProcess *processes, size_t count, uint64_t physical_total,
+    uint64_t board_memory_used, bool board_memory_used_available) {
+    if (!processes) return 0;
+    uint64_t ceiling = physical_total;
+    if (board_memory_used_available && board_memory_used > 0) {
+        const uint64_t minimum_slack = 256ULL * 1024ULL * 1024ULL;
+        uint64_t slack = board_memory_used / 8ULL;
+        if (slack < minimum_slack) slack = minimum_slack;
+        uint64_t used_ceiling = UINT64_MAX - board_memory_used < slack
+            ? UINT64_MAX : board_memory_used + slack;
+        if (ceiling == 0 || used_ceiling < ceiling) ceiling = used_ceiling;
+    }
+    if (ceiling == 0) return 0;
+
+    size_t invalid_count = 0;
     for (size_t i = 0; i < count; ++i) {
-        if (!dedicated_gpu_memory_plausible(processes[i].dedicated_bytes,
-                                            physical_total)) {
-            invalid = true;
-            break;
+        if (processes[i].dedicated_bytes > ceiling) {
+            processes[i].dedicated_memory_invalid = true;
+            processes[i].dedicated_bytes = 0;
+            invalid_count++;
         }
     }
-    if (!invalid) return false;
-    for (size_t i = 0; i < count; ++i) {
-        processes[i].dedicated_memory_invalid = true;
-        processes[i].dedicated_bytes = 0;
-    }
-    return true;
+    return invalid_count;
 }
 
 void iso_timestamp(char *buffer, size_t buffer_size) {

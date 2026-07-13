@@ -92,8 +92,9 @@ void wide_to_utf8(const wchar_t *source, char *target, size_t target_size);
 void sanitize_csv_field(const char *source, char *target, size_t target_size);
 bool contains_case_insensitive(const char *haystack, const char *needle);
 bool dedicated_gpu_memory_plausible(uint64_t bytes, uint64_t physical_total);
-bool quarantine_invalid_dedicated_gpu_memory(GpuProcess *processes, size_t count,
-                                             uint64_t physical_total);
+size_t invalidate_implausible_dedicated_gpu_memory(
+    GpuProcess *processes, size_t count, uint64_t physical_total,
+    uint64_t board_memory_used, bool board_memory_used_available);
 void iso_timestamp(char *buffer, size_t buffer_size);
 bool query_process_details(DWORD pid, ProcessDetails *details);
 bool terminate_process_safely(DWORD pid, char *message, size_t message_size);

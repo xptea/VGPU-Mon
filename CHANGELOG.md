@@ -4,6 +4,13 @@ All notable user-facing changes are documented here. This project follows [Seman
 
 ## [Unreleased]
 
+## [1.3.2] - 2026-07-13
+
+### Fixed
+
+- Preserve valid per-process dedicated-memory values when another WDDM row is corrupt instead of replacing the entire dedicated column with `N/A`.
+- Reject individual stale rows against NVIDIA's current board allocation with bounded sampling slack, catching both the impossible Zen value and the inflated DWM value from the reported Windows counter failure.
+
 ## [1.3.1] - 2026-07-13
 
 ### Fixed
